@@ -124,7 +124,14 @@ class PhoneWearListenerService : WearableListenerService() {
     }
 
     private suspend fun toggleLike(command: LikeCommand) {
-        val song = runCatching { database.song(command.trackId).first() }.getOrNull() ?: return
+        val song = runCatching { database.song(command.trackId).first() }
+            .onFailure { Timber.w(it, "Like failed: could not read %s", command.trackId) }
+            .getOrNull()
+            ?: run {
+                // A track played from watch search isn't in the phone's database.
+                Timber.d("Like ignored: %s is not in the library", command.trackId)
+                return
+            }
         // SongEntity.toggleLike() also fires the YouTube like/unlike, so the
         // change lands on the account and not just this phone's database.
         database.query { update(song.song.toggleLike()) }

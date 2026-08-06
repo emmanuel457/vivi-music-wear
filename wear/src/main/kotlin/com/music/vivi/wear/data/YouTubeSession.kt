@@ -60,6 +60,22 @@ class YouTubeSession(
         YouTube.cookie = credentials.cookie
         YouTube.visitorData = credentials.visitorData
         YouTube.dataSyncId = credentials.dataSyncId
+
+        // The phone fetches visitorData itself when it has none; the watch only
+        // ever received whatever the phone happened to have cached at handoff
+        // time, which is routinely nothing. Without it InnerTube's browse
+        // endpoints return empty, which is what left Quick picks blank on a
+        // watch that was otherwise correctly signed in.
+        if (credentials.visitorData.isNullOrBlank()) {
+            scope.launch {
+                YouTube.refreshVisitorData()
+                    .onSuccess {
+                        Timber.i("Fetched visitorData for the watch")
+                        prefs.saveVisitorData(it)
+                    }
+                    .onFailure { Timber.w(it, "Could not fetch visitorData") }
+            }
+        }
         // Browsing with the account attached is the whole point of the handoff:
         // it makes home, library and liked songs match what the phone shows.
         YouTube.useLoginForBrowse = credentials.cookie != null

@@ -58,6 +58,9 @@ class WearPrefs(private val context: Context) {
         prefs[KeySetupComplete] = true
     }
 
+    /** Persists a visitorData the watch fetched for itself. */
+    suspend fun saveVisitorData(value: String) = store.edit { it[KeyVisitorData] = value }
+
     suspend fun clearAuth() = store.edit { prefs ->
         prefs.remove(KeyCookie)
         prefs.remove(KeyVisitorData)

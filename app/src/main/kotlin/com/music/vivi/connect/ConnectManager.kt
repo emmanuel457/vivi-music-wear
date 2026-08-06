@@ -142,7 +142,18 @@ class ConnectManager(
 
     private suspend fun acceptLoop(server: ServerSocket, fingerprints: Set<String>) {
         while (scope.isActive && _running.value) {
-            val socket = runCatching { server.accept() }.getOrNull() ?: break
+            val socket = try {
+                server.accept()
+            } catch (e: Exception) {
+                // Only a deliberate shutdown should end the loop. Treating any
+                // exception as terminal meant one transient error stopped this
+                // device accepting connections for the rest of the process, with
+                // nothing logged and the picker still claiming to be listening.
+                if (server.isClosed || !_running.value) break
+                Timber.w(e, "Connect accept failed; retrying")
+                delay(ACCEPT_RETRY_MS)
+                continue
+            }
             scope.launch { handleInbound(socket, fingerprints) }
         }
     }
@@ -227,7 +238,7 @@ class ConnectManager(
                     val frame = link.readFrame() ?: break
                     dispatch(frame)
                 }
-            }
+            }.onFailure { Timber.w(it, "Connect link to %s failed", peerId.take(6)) }
             links.remove(peerId)
             discovery.markConnected(peerId, false)
             link.close()
@@ -308,10 +319,19 @@ class ConnectManager(
             socket.tcpNoDelay = true
         }
 
+        /** Returns null only at genuine end-of-stream. */
         fun readFrame(): ConnectFrame? {
-            val line = reader.readLine() ?: return null
-            return runCatching { SyncCodec.json.decodeFromString<ConnectFrame>(line) }
-                .getOrNull()
+            while (true) {
+                val line = reader.readLine() ?: return null
+                val frame = runCatching {
+                    SyncCodec.json.decodeFromString<ConnectFrame>(line)
+                }.getOrNull()
+                if (frame != null) return frame
+                // A frame this build doesn't understand is not a dead socket.
+                // Returning null here made one malformed line indistinguishable
+                // from EOF and tore down an otherwise healthy link.
+                Timber.w("Skipping a malformed Connect frame")
+            }
         }
 
         fun send(frame: ConnectFrame) {
@@ -328,6 +348,7 @@ class ConnectManager(
     }
 
     private companion object {
+        const val ACCEPT_RETRY_MS = 1_000L
         const val DIAL_INTERVAL_MS = 10_000L
         const val KEEPALIVE_INTERVAL_MS = 25_000L
         const val CONNECT_TIMEOUT_MS = 4_000

@@ -23,6 +23,10 @@ class ViviWearApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
+        } else {
+            // Without this, nothing this app logs is visible on the signed build
+            // anyone actually installs.
+            Timber.plant(ReleaseLogTree())
         }
         WearGraph.ensureInitialized(this)
     }
