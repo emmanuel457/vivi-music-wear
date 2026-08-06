@@ -135,6 +135,8 @@ dependencies {
     // Images
     implementation(libs.coil)
     implementation(libs.coil.network.okhttp)
+    // Album-art colour extraction for the dynamic theme.
+    implementation(libs.palette)
 
     implementation(libs.datastore)
     implementation(libs.kotlinx.serialization.json)

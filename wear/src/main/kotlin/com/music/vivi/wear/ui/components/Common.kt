@@ -19,8 +19,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.wear.compose.material3.Icon
+import androidx.wear.compose.material3.LocalContentColor
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
 
@@ -36,6 +38,13 @@ fun SectionButton(
     Button(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
+        // Dark container, light content. The default filled Button puts dark
+        // text on the light `primary` colour, which is hard to read on a watch
+        // outdoors and left no readable colour for a secondary line.
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -60,7 +69,10 @@ fun SectionButton(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // Derived from the button's own content colour, not a
+                        // surface token — the container this sits on is set by
+                        // the button, so a global token can be invisible here.
+                        color = LocalContentColor.current.copy(alpha = 0.75f),
                     )
                 }
             }

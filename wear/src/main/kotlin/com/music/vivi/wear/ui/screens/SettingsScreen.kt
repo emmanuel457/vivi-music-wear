@@ -59,10 +59,14 @@ fun SettingsScreen(navController: NavHostController) {
 
             item {
                 SectionButton(
-                    label = if (signedIn) {
-                        stringResource(R.string.signed_in_as, accountName ?: "")
-                    } else {
-                        stringResource(R.string.not_signed_in)
+                    label = when {
+                        // The phone can hand over a valid cookie with no display
+                        // name attached, which rendered as a bare "Signed in as"
+                        // followed by nothing.
+                        signedIn && !accountName.isNullOrBlank() ->
+                            stringResource(R.string.signed_in_as, accountName!!)
+                        signedIn -> stringResource(R.string.signed_in)
+                        else -> stringResource(R.string.not_signed_in)
                     },
                     secondaryLabel = if (!signedIn && phoneReachable) {
                         stringResource(R.string.setup_request)

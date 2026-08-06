@@ -39,6 +39,7 @@
     <string name="setup_waiting">Waiting for your phone…</string>
     <string name="setup_skip">Continue signed out</string>
     <string name="signed_in_as">Signed in as %1$s</string>
+    <string name="signed_in">Signed in</string>
     <string name="not_signed_in">Not signed in</string>
 
     <!-- Settings -->

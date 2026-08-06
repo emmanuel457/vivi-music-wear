@@ -5,6 +5,7 @@
 
 package com.music.vivi.wear.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.Icon
+import androidx.wear.compose.material3.LocalContentColor
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
 import coil3.compose.AsyncImage
@@ -48,11 +50,17 @@ fun TrackRow(
     Button(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        colors = if (isPlaying) {
-            ButtonDefaults.filledTonalButtonColors()
-        } else {
-            ButtonDefaults.filledVariantButtonColors()
-        },
+        // The playing row is distinguished by a lifted container rather than by
+        // an accent fill, so a long list stays calm and the text contrast is
+        // identical on every row.
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (isPlaying) {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            },
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -77,7 +85,7 @@ fun TrackRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = LocalContentColor.current.copy(alpha = 0.75f),
                     )
                 }
             }
@@ -93,14 +101,19 @@ fun Artwork(
     cornerRadius: Int = 8,
 ) {
     Box(
-        modifier = modifier.clip(RoundedCornerShape(cornerRadius.dp)),
+        modifier = modifier
+            .clip(RoundedCornerShape(cornerRadius.dp))
+            // Gives the placeholder a visible tile instead of an icon floating
+            // on whatever happens to be behind it.
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
         if (url.isNullOrBlank()) {
             Icon(
                 imageVector = Icons.Rounded.MusicNote,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                // Adapts whether this sits on a button or on the background.
+                tint = LocalContentColor.current.copy(alpha = 0.7f),
                 modifier = Modifier.padding(8.dp),
             )
         } else {
