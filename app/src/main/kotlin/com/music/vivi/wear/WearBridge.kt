@@ -26,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.lang.ref.WeakReference
@@ -80,16 +81,6 @@ object WearBridge {
      * Bluetooth round trip.
      */
     fun onPlayerEvents(force: Boolean = false) {
-        // A false -> true transition means this phone just took over. Tell the
-        // watch so it drops any local queue, mirroring what the watch does to us
-        // via NOTIFY_WATCH_PLAYING. Without this the "last actor wins" rule only
-        // holds one way and both devices end up playing.
-        val playingNow = runCatching { service()?.player?.isPlaying == true }.getOrDefault(false)
-        if (playingNow && !wasPlaying) {
-            scope.launch { sendToWatches(SyncPaths.NOTIFY_PHONE_PLAYING) }
-        }
-        wasPlaying = playingNow
-
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastPublishAt < MIN_PUBLISH_INTERVAL_MS) return
         lastPublishAt = now
@@ -116,21 +107,49 @@ object WearBridge {
 
     suspend fun publishNowPlaying() {
         val service = service() ?: run { publishIdleBlocking(); return }
-        val state = runCatching { captureState(service) }.getOrNull() ?: return
+
+        // ExoPlayer throws when touched from any thread but the one it was
+        // built on. This scope is Dispatchers.IO, so reading the player here
+        // directly threw on every single publish and the catch below swallowed
+        // it -- the watch silently never received a now-playing update, while
+        // library sync kept working because it never touches the player.
+        val state = withContext(Dispatchers.Main) {
+            runCatching { captureState(service) }
+                .onFailure { Timber.w(it, "Could not read playback state for the watch") }
+                .getOrNull()
+        } ?: return
+
+        // A false -> true transition means this phone just took over. Tell the
+        // watch so it drops any local queue, mirroring what the watch does to us
+        // via NOTIFY_WATCH_PLAYING; without it "last actor wins" holds in one
+        // direction only. Derived from the captured state rather than read off
+        // the player, because this method is also reached from IO threads.
+        if (state.isPlaying && !wasPlaying) {
+            scope.launch { sendToWatches(SyncPaths.NOTIFY_PHONE_PLAYING) }
+        }
+        wasPlaying = state.isPlaying
+
+        lastState = state
         putDataItem(SyncPaths.STATE_NOW_PLAYING, SyncCodec.encode(state))
         // Same snapshot, second transport: watches get it over the Data Layer,
         // phones and tablets over Vivi Connect.
         com.music.vivi.connect.ConnectBridge.onPlaybackStateChanged(state)
     }
 
+    /** Last state we successfully captured, for callers that aren't on main. */
+    @Volatile
+    private var lastState: NowPlayingState = NowPlayingState.IDLE
+
     /**
      * Current playback state, or idle when nothing is running. Used by Connect
      * to brief a peer the moment it links up.
+     *
+     * Returns the cached snapshot rather than reading the player: callers run on
+     * arbitrary threads, and blocking onto main here would risk deadlocking the
+     * very thread that produces the value.
      */
-    fun snapshot(): NowPlayingState {
-        val service = service() ?: return NowPlayingState.IDLE
-        return runCatching { captureState(service) }.getOrDefault(NowPlayingState.IDLE)
-    }
+    fun snapshot(): NowPlayingState =
+        if (service() == null) NowPlayingState.IDLE else lastState
 
     private fun publishIdle() {
         scope.launch { publishIdleBlocking() }

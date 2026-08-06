@@ -85,10 +85,10 @@ object ConnectBridge {
             // populated lazily, so poll until one appears rather than giving up
             // on the single reading available at startup.
             while (true) {
-                val identity = resolveIdentity(app)
-                if (identity != null) {
+                val identities = resolveIdentities(app)
+                if (identities.isNotEmpty()) {
                     _identityMissing.value = false
-                    instance.start(identity)
+                    instance.start(identities)
                     return@launch
                 }
                 _identityMissing.value = true
@@ -110,40 +110,43 @@ object ConnectBridge {
      * blank — which silently disabled Connect and also showed up as a bare
      * "Signed in as" on the watch.
      */
-    private suspend fun resolveIdentity(app: Context): String? {
+    private suspend fun resolveIdentities(app: Context): List<String?> {
         val store = app.dataStore
+        val identities = mutableListOf<String?>()
 
-        store.getAsync(AccountEmailKey)?.takeIf { it.isNotBlank() }?.let { return it }
-        store.getAsync(AccountChannelHandleKey)?.takeIf { it.isNotBlank() }?.let { return it }
+        identities += store.getAsync(AccountEmailKey)
+        identities += store.getAsync(AccountChannelHandleKey)
 
         // dataSyncId is "<account>||<session>"; only the leading segment is
         // stable across devices, so the session half must be dropped.
-        store.getAsync(DataSyncIdKey)
-            ?.substringBefore("||")
-            ?.takeIf { it.isNotBlank() }
-            ?.let { return it }
+        identities += store.getAsync(DataSyncIdKey)?.substringBefore("||")
 
-        // Nothing cached. Ask YouTube directly, which is authoritative and needs
-        // only the cookie we already have.
+        // Always ask YouTube too, not only when the cache is empty. Two devices
+        // can have different subsets of these fields cached, and returning just
+        // the first hit meant they hashed different strings and silently refused
+        // each other. Gathering everything and matching on any overlap fixes it.
         if (!store.getAsync(InnerTubeCookieKey).isNullOrBlank()) {
             YouTube.accountInfo().getOrNull()?.let { info ->
-                val identity = info.email ?: info.channelHandle ?: info.name
-                if (identity.isNotBlank()) {
-                    // Cache it so the next launch resolves instantly and the
-                    // account screens stop showing blanks.
-                    runCatching {
-                        store.edit { settings ->
-                            settings[AccountNameKey] = info.name
-                            info.email?.let { settings[AccountEmailKey] = it }
-                            info.channelHandle?.let { settings[AccountChannelHandleKey] = it }
-                        }
+                identities += info.email
+                identities += info.channelHandle
+                identities += info.name
+                // Cache it so later launches resolve without a network call and
+                // the account screens stop showing blanks.
+                runCatching {
+                    store.edit { settings ->
+                        settings[AccountNameKey] = info.name
+                        info.email?.let { settings[AccountEmailKey] = it }
+                        info.channelHandle?.let { settings[AccountChannelHandleKey] = it }
                     }
-                    return identity
                 }
             }
         }
-        return null
+        return identities.filterNot { it.isNullOrBlank() }
     }
+
+    /** Discovery diagnostics for the picker. */
+    fun status(): StateFlow<ConnectStatus> =
+        manager?.status ?: MutableStateFlow(ConnectStatus())
 
     private const val IDENTITY_RETRY_MS = 15_000L
 

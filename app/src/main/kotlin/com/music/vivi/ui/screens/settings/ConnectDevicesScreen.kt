@@ -65,6 +65,7 @@ fun ConnectDevicesScreen(
         ?: androidx.compose.runtime.mutableStateOf(emptyList<ConnectDevice>()))
     val running by ConnectBridge.runningState().collectAsState()
     val identityMissing by ConnectBridge.identityMissing.collectAsState()
+    val status by ConnectBridge.status().collectAsState()
 
     val remote = ConnectBridge.remoteState()
     val local = WearBridge.snapshot()
@@ -145,6 +146,34 @@ fun ConnectDevicesScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),
                     )
+                }
+
+                // Without this, "saw nothing" and "saw it and threw it away"
+                // are indistinguishable from a screenshot, which is exactly
+                // where the last two rounds of debugging got stuck.
+                if (running) {
+                    item {
+                        Text(
+                            text = buildString {
+                                append(if (status.advertising) "Advertising" else "Not advertising")
+                                append(" · ")
+                                append(if (status.discovering) "Discovering" else "Not discovering")
+                                append(" · seen ").append(status.servicesSeen)
+                                if (status.rejectedDifferentAccount > 0) {
+                                    append(" · ").append(status.rejectedDifferentAccount)
+                                        .append(" on another account")
+                                }
+                                if (status.resolveFailures > 0) {
+                                    append(" · ").append(status.resolveFailures)
+                                        .append(" unresolved")
+                                }
+                                status.lastError?.let { append(" · ").append(it) }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
                 }
             }
 

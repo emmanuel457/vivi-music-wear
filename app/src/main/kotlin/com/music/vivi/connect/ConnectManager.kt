@@ -95,14 +95,19 @@ class ConnectManager(
         }.stateIn(scope, SharingStarted.Eagerly, emptyList())
     }
 
+    /** Discovery diagnostics, surfaced in the picker so failures are readable. */
+    val status: StateFlow<ConnectStatus> get() = discovery.status
+
     /**
-     * @param accountIdentity a value shared by every device on this account
-     *   (the account email). Null disables Connect — see
-     *   [ConnectProtocol.fingerprint].
+     * @param accountIdentities every identifier this device knows for the
+     *   signed-in account. All of them are advertised and a peer matches on any
+     *   overlap — see [ConnectProtocol.fingerprints]. An empty result disables
+     *   Connect.
      */
-    fun start(accountIdentity: String?) {
+    fun start(accountIdentities: List<String?>) {
         if (_running.value) return
-        val fingerprint = ConnectProtocol.fingerprint(accountIdentity) ?: run {
+        val fingerprints = ConnectProtocol.fingerprints(accountIdentities)
+        if (fingerprints.isEmpty()) {
             Timber.i("Vivi Connect stays off: no signed-in account to authenticate peers with")
             return
         }
@@ -115,10 +120,10 @@ class ConnectManager(
         _running.value = true
 
         Timber.i("Vivi Connect listening on %d as %s", server.localPort, selfName)
-        discovery.start(server.localPort, fingerprint)
+        discovery.start(server.localPort, fingerprints)
 
-        scope.launch { acceptLoop(server, fingerprint) }
-        scope.launch { dialLoop(fingerprint) }
+        scope.launch { acceptLoop(server, fingerprints) }
+        scope.launch { dialLoop(fingerprints) }
         scope.launch { keepAliveLoop() }
     }
 
@@ -135,14 +140,14 @@ class ConnectManager(
 
     // ── Connection management ────────────────────────────────────────────────
 
-    private suspend fun acceptLoop(server: ServerSocket, fingerprint: String) {
+    private suspend fun acceptLoop(server: ServerSocket, fingerprints: Set<String>) {
         while (scope.isActive && _running.value) {
             val socket = runCatching { server.accept() }.getOrNull() ?: break
-            scope.launch { handleInbound(socket, fingerprint) }
+            scope.launch { handleInbound(socket, fingerprints) }
         }
     }
 
-    private fun handleInbound(socket: Socket, fingerprint: String) {
+    private fun handleInbound(socket: Socket, fingerprints: Set<String>) {
         runCatching {
             val link = PeerLink(socket)
             val hello = link.readFrame()
@@ -151,7 +156,8 @@ class ConnectManager(
                 return
             }
             val payload = SyncCodec.decodeOrNull<ConnectHello>(decode(hello.data))
-            if (payload == null || payload.fingerprint != fingerprint) {
+            val peerFingerprints = ConnectProtocol.decodeFingerprints(payload?.fingerprint)
+            if (payload == null || peerFingerprints.none { it in fingerprints }) {
                 Timber.w("Refused a Connect peer with a bad fingerprint")
                 link.close()
                 return
@@ -163,7 +169,7 @@ class ConnectManager(
     }
 
     /** Periodically dials any discovered peer we are not already linked to. */
-    private suspend fun dialLoop(fingerprint: String) {
+    private suspend fun dialLoop(fingerprints: Set<String>) {
         while (scope.isActive && _running.value) {
             val known = discovery.peers.value
             for ((peerId, device) in known) {
@@ -171,13 +177,13 @@ class ConnectManager(
                 // Only the lower id dials, so two devices discovering each other
                 // simultaneously don't end up with a redundant pair of sockets.
                 if (selfId > peerId) continue
-                scope.launch { dial(device, fingerprint) }
+                scope.launch { dial(device, fingerprints) }
             }
             delay(DIAL_INTERVAL_MS)
         }
     }
 
-    private fun dial(device: ConnectDevice, fingerprint: String) {
+    private fun dial(device: ConnectDevice, fingerprints: Set<String>) {
         runCatching {
             val socket = Socket().apply {
                 connect(InetSocketAddress(device.host, device.port), CONNECT_TIMEOUT_MS)
@@ -187,7 +193,13 @@ class ConnectManager(
                 ConnectFrame(
                     path = ConnectProtocol.PATH_HELLO,
                     data = encode(
-                        SyncCodec.encode(ConnectHello(selfId, selfName, fingerprint))
+                        SyncCodec.encode(
+                            ConnectHello(
+                                deviceId = selfId,
+                                deviceName = selfName,
+                                fingerprint = ConnectProtocol.encodeFingerprints(fingerprints),
+                            )
+                        )
                     ),
                 )
             )

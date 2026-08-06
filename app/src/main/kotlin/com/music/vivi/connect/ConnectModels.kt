@@ -53,14 +53,49 @@ object ConnectProtocol {
      * The consequence, which is deliberate: Connect is unavailable when signed
      * out, because there would be no shared value to authenticate with and
      * "accept every device on the LAN" is not an acceptable default.
+     *
+     * Takes *every* identifier a device knows rather than the first one it can
+     * find. Which account fields are populated differs from device to device —
+     * one phone may have an email cached while a tablet only has a channel
+     * handle — so a single "best" identifier makes two devices on the same
+     * account hash different strings and refuse each other. Advertising the
+     * whole set and matching on any overlap removes that whole class of
+     * mismatch.
      */
-    fun fingerprint(accountIdentity: String?): String? {
-        if (accountIdentity.isNullOrBlank()) return null
+    fun fingerprints(identities: List<String?>): Set<String> =
+        identities.asSequence()
+            .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            // Case and surrounding whitespace vary between how these fields get
+            // stored; normalise so the same account always hashes the same.
+            .map { fingerprintOf(it.lowercase()) }
+            .toSet()
+
+    private fun fingerprintOf(identity: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
-            .digest("vivi-connect-v1:$accountIdentity".toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }
+            .digest("vivi-connect-v1:$identity".toByteArray(Charsets.UTF_8))
+        // 64 bits is ample to group devices by account and keeps the TXT record
+        // well inside DNS-SD's 255-byte per-attribute ceiling once several
+        // fingerprints are joined.
+        return digest.take(8).joinToString("") { "%02x".format(it) }
     }
+
+    fun encodeFingerprints(fingerprints: Set<String>): String =
+        fingerprints.sorted().joinToString(",")
+
+    fun decodeFingerprints(raw: String?): Set<String> =
+        raw?.split(',')?.mapNotNull { it.takeIf(String::isNotBlank) }?.toSet().orEmpty()
 }
+
+/** What discovery is actually doing, surfaced so failures are diagnosable. */
+data class ConnectStatus(
+    val advertising: Boolean = false,
+    val discovering: Boolean = false,
+    /** Vivi services seen on the network, including ones later filtered out. */
+    val servicesSeen: Int = 0,
+    val rejectedDifferentAccount: Int = 0,
+    val resolveFailures: Int = 0,
+    val lastError: String? = null,
+)
 
 /**
  * One frame on the wire. Newline-delimited JSON, because the payloads are

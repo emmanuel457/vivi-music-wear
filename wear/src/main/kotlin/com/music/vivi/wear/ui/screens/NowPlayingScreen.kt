@@ -96,13 +96,16 @@ fun NowPlayingScreen(navController: NavHostController) {
 
         Spacer(Modifier.height(4.dp))
 
+        // The cover is the thing you glance at; 48 dp read as an afterthought.
+        // 72 dp is about the ceiling before the transport row gets pushed off a
+        // small round screen.
         Artwork(
             url = track.thumbnailUrl,
-            modifier = Modifier.size(48.dp),
-            cornerRadius = 10,
+            modifier = Modifier.size(72.dp),
+            cornerRadius = 14,
         )
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
 
         Text(
             text = track.title,
