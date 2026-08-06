@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Wear devices are always-black OLED; a non-black window background shows
+      as a visible flash before Compose draws its first frame.
+    -->
+    <style name="Theme.ViviWear" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+
+    <style name="Theme.ViviWear.Splash" parent="Theme.ViviWear" />
+</resources>

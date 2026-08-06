@@ -244,6 +244,33 @@
             </intent-filter>
         </service>
 
+        <!-- ── Wear OS companion ───────────────────────────────────────── -->
+
+        <!--
+          Receives transport commands, sync requests and account handoff
+          requests from the paired watch. The Data Layer only routes between
+          apps sharing an application ID and signing certificate.
+        -->
+        <service
+            android:name=".wear.PhoneWearListenerService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/vivi"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+
+        <!-- Confirmation shown before any account cookie leaves the phone. -->
+        <activity
+            android:name=".wear.WearAuthConfirmActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
         <service
             android:name=".playback.ExoDownloadService"
             android:exported="false"

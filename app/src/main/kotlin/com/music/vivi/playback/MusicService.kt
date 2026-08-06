@@ -466,6 +466,10 @@ class MusicService :
         super.onCreate()
         isRunning = true
 
+        // Wear OS companion: let the paired watch see and drive this player.
+        com.music.vivi.wear.WearBridge.init(applicationContext)
+        com.music.vivi.wear.WearBridge.attach(this)
+
         // Player rediness reset to false
         playerInitialized.value = false
 
@@ -2213,6 +2217,14 @@ class MusicService :
             scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
         }
 
+        // Wear OS companion. Self-throttling, and a no-op when no watch is
+        // paired, so this stays off the hot path for phone-only users.
+        com.music.vivi.wear.WearBridge.onPlayerEvents(
+            force = events.containsAny(
+                Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_IS_PLAYING_CHANGED,
+            )
+        )
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -3173,6 +3185,10 @@ class MusicService :
 
     override fun onDestroy() {
         isRunning = false
+
+        // Clears the watch's now-playing card; without this it keeps showing a
+        // track that no longer exists and its buttons do nothing.
+        com.music.vivi.wear.WearBridge.detach()
 
         try {
             unregisterReceiver(screenStateReceiver)

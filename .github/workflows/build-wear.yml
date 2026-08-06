@@ -1,0 +1,78 @@
+name: Build Wear OS + phone APKs
+
+on:
+  push:
+    branches: [ wear, main ]
+  pull_request:
+    branches: [ wear, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "ndk;27.0.12077973"
+
+      - name: Generate shared signing keystore
+        # Phone and watch APKs must carry the same certificate or the Wearable
+        # Data Layer will not route between them. The keystore is not committed,
+        # so CI creates a deterministic one from secrets (or dev defaults).
+        env:
+          VIVI_STORE_PASSWORD: ${{ secrets.VIVI_STORE_PASSWORD || 'viviwear' }}
+          VIVI_KEY_PASSWORD: ${{ secrets.VIVI_KEY_PASSWORD || 'viviwear' }}
+          VIVI_KEY_ALIAS: ${{ secrets.VIVI_KEY_ALIAS || 'vivi' }}
+        run: |
+          mkdir -p keystore
+          keytool -genkeypair \
+            -keystore keystore/vivi-wear.keystore \
+            -storepass "$VIVI_STORE_PASSWORD" \
+            -keypass "$VIVI_KEY_PASSWORD" \
+            -alias "$VIVI_KEY_ALIAS" \
+            -keyalg RSA -keysize 4096 -validity 10950 \
+            -dname "CN=Vivi Music Wear, OU=ViviWear, O=ViviWear, C=US"
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build watch APK
+        env:
+          VIVI_STORE_PASSWORD: ${{ secrets.VIVI_STORE_PASSWORD || 'viviwear' }}
+          VIVI_KEY_PASSWORD: ${{ secrets.VIVI_KEY_PASSWORD || 'viviwear' }}
+          VIVI_KEY_ALIAS: ${{ secrets.VIVI_KEY_ALIAS || 'vivi' }}
+        run: ./gradlew :wear:assembleRelease --stacktrace
+
+      - name: Build phone APK
+        env:
+          VIVI_STORE_PASSWORD: ${{ secrets.VIVI_STORE_PASSWORD || 'viviwear' }}
+          VIVI_KEY_PASSWORD: ${{ secrets.VIVI_KEY_PASSWORD || 'viviwear' }}
+          VIVI_KEY_ALIAS: ${{ secrets.VIVI_KEY_ALIAS || 'vivi' }}
+        run: ./gradlew :app:assembleUniversalFossRelease --stacktrace
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: vivi-music-wear-apks
+          if-no-files-found: error
+          path: |
+            wear/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/universalFoss/release/*.apk

@@ -85,6 +85,15 @@ android {
     }
 
     signingConfigs {
+        // Shared with :wear. The Wearable Data Layer only routes messages between
+        // a phone app and a watch app signed by the same certificate, so both
+        // modules must use this config for every build type we ship.
+        create("shared") {
+            storeFile = rootProject.file("keystore/vivi-wear.keystore")
+            storePassword = System.getenv("VIVI_STORE_PASSWORD") ?: "viviwear"
+            keyAlias = System.getenv("VIVI_KEY_ALIAS") ?: "vivi"
+            keyPassword = System.getenv("VIVI_KEY_PASSWORD") ?: "viviwear"
+        }
         create("persistentDebug") {
             storeFile = file("persistent-debug.keystore")
             storePassword = "android"
@@ -115,12 +124,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("shared")
             buildConfigField("String", "ARCHITECTURE", "\"release\"")
         }
         debug {
-            applicationIdSuffix = ".debug"
+            // No applicationIdSuffix: the watch app must share this exact
+            // application ID for Data Layer node pairing to resolve.
             isDebuggable = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("shared")
             buildConfigField("String", "ARCHITECTURE", "\"debug\"")
         }
     }
@@ -272,6 +283,7 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     implementation(project(":innertube"))
+    implementation(project(":wearsync"))
     implementation(project(":kizzy"))
     implementation(project(":lastfm"))
     implementation(project(":canvas"))
