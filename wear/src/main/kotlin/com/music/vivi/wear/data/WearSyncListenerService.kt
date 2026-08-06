@@ -59,9 +59,9 @@ class WearSyncListenerService : WearableListenerService() {
 
     override fun onMessageReceived(event: MessageEvent) {
         when (event.path) {
-            // The phone took playback back; stop local audio so the user isn't
-            // hearing two devices at once.
-            SyncPaths.NOTIFY_WATCH_STOPPED -> WearGraph.router.onPhoneReclaimedPlayback()
+            // The phone took playback back; drop our local queue so the user
+            // isn't hearing two devices at once.
+            SyncPaths.NOTIFY_PHONE_PLAYING -> WearGraph.router.onPhoneReclaimedPlayback()
         }
     }
 

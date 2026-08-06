@@ -10,8 +10,10 @@ import android.media.AudioManager
 import android.os.SystemClock
 import androidx.core.content.getSystemService
 import androidx.media3.common.Player
+import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
+import com.music.vivi.wearsync.SyncCapabilities
 import com.music.vivi.extensions.currentMetadata
 import com.music.vivi.models.MediaMetadata
 import com.music.vivi.playback.MusicService
@@ -78,10 +80,38 @@ object WearBridge {
      * Bluetooth round trip.
      */
     fun onPlayerEvents(force: Boolean = false) {
+        // A false -> true transition means this phone just took over. Tell the
+        // watch so it drops any local queue, mirroring what the watch does to us
+        // via NOTIFY_WATCH_PLAYING. Without this the "last actor wins" rule only
+        // holds one way and both devices end up playing.
+        val playingNow = runCatching { service()?.player?.isPlaying == true }.getOrDefault(false)
+        if (playingNow && !wasPlaying) {
+            scope.launch { sendToWatches(SyncPaths.NOTIFY_PHONE_PLAYING) }
+        }
+        wasPlaying = playingNow
+
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastPublishAt < MIN_PUBLISH_INTERVAL_MS) return
         lastPublishAt = now
         scope.launch { publishNowPlaying() }
+    }
+
+    @Volatile
+    private var wasPlaying = false
+
+    /** Fire-and-forget message to every paired watch running Vivi Music. */
+    private suspend fun sendToWatches(path: String, payload: ByteArray = ByteArray(0)) {
+        if (!::appContext.isInitialized) return
+        runCatching {
+            val nodes = Wearable.getCapabilityClient(appContext)
+                .getCapability(SyncCapabilities.WATCH, CapabilityClient.FILTER_REACHABLE)
+                .await()
+                .nodes
+            val messageClient = Wearable.getMessageClient(appContext)
+            for (node in nodes) {
+                runCatching { messageClient.sendMessage(node.id, path, payload).await() }
+            }
+        }.onFailure { Timber.w(it, "Could not notify watches on %s", path) }
     }
 
     suspend fun publishNowPlaying() {

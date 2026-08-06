@@ -158,22 +158,36 @@ class PlaybackRouter(
         phone: com.music.vivi.wearsync.NowPlayingState,
         phoneReachable: Boolean,
     ): UiPlaybackState = when {
+        // Backstop for a dropped NOTIFY_PHONE_PLAYING. MessageClient is
+        // fire-and-forget, so we cannot rely on it alone: if the phone says it
+        // is actively playing while our own player is idle, the phone is the
+        // real source of audio and holding a stale local queue would strand the
+        // UI on a track nobody can hear.
+        local.route == ActiveRoute.WATCH && !local.isPlaying &&
+            phoneReachable && phone.phonePlaybackActive && phone.isPlaying ->
+            phoneState(phone)
+
         local.route == ActiveRoute.WATCH -> local
-        phoneReachable && phone.phonePlaybackActive -> UiPlaybackState(
-            route = ActiveRoute.PHONE,
-            track = phone.track,
-            isPlaying = phone.isPlaying,
-            durationMs = phone.durationMs,
-            queue = listOfNotNull(phone.track),
-            queueIndex = 0,
-            queueTitle = phone.queueTitle,
-            shuffle = phone.shuffle,
-            repeatMode = phone.repeatMode,
-            canSkipNext = phone.canSkipNext,
-            canSkipPrevious = phone.canSkipPrevious,
-        )
+        phoneReachable && phone.phonePlaybackActive -> phoneState(phone)
+
         else -> UiPlaybackState()
     }
+
+    private fun phoneState(phone: com.music.vivi.wearsync.NowPlayingState) = UiPlaybackState(
+        route = ActiveRoute.PHONE,
+        track = phone.track,
+        isPlaying = phone.isPlaying,
+        durationMs = phone.durationMs,
+        // The phone sends only the current track, not its whole queue, so the
+        // watch's Queue screen shows a single row in remote mode.
+        queue = listOfNotNull(phone.track),
+        queueIndex = 0,
+        queueTitle = phone.queueTitle,
+        shuffle = phone.shuffle,
+        repeatMode = phone.repeatMode,
+        canSkipNext = phone.canSkipNext,
+        canSkipPrevious = phone.canSkipPrevious,
+    )
 
     /** Live position, sampled only while a screen that shows it is on. */
     fun positionMs(): Long = when (_state.value.route) {

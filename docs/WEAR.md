@@ -40,11 +40,20 @@ User taps play on the watch
                     └── otherwise ───────────────────────────► play locally
 ```
 
-The rule is *last actor wins*. Starting playback on the watch sends
-`NOTIFY_WATCH_PLAYING`, and the phone pauses — you never get the same song out of
-two devices. If a send fails because the phone dropped out between the routing
-decision and the message, the watch falls back to local playback rather than
-dropping the tap.
+The rule is *last actor wins*, and it is symmetric:
+
+- Watch starts playing → `NOTIFY_WATCH_PLAYING` → the phone pauses.
+- Phone starts playing → `NOTIFY_PHONE_PLAYING` → the watch drops its local queue.
+
+You never get the same song out of two devices. Both notifications are
+`MessageClient` sends, which are fire-and-forget and can be dropped, so the watch
+also carries a backstop: if the phone reports it is actively playing while the
+watch's own player is idle, the phone wins regardless of whether the message
+arrived. Without that, a single dropped message would strand the watch UI on a
+track nobody can hear.
+
+If a send fails because the phone dropped out between the routing decision and
+the message, the watch falls back to local playback rather than dropping the tap.
 
 Position is never polled. The phone stamps each state snapshot and the watch
 extrapolates locally; polling would hold the Bluetooth link open and cost real
@@ -141,6 +150,17 @@ Things the phone app does that the watch does not, and why:
   cache is a single JSON file written atomically.
 - **Hilt.** Five singletons and no injection points beyond them. KSP codegen and
   component init are real costs on this hardware. The phone app keeps Hilt.
+
+## Known limitations
+
+- **The Queue screen shows one row while the phone is playing.** `NowPlayingState`
+  carries the current track and a queue *size*, not the queue itself. Tapping a
+  row in remote mode re-issues the whole list, which is how jumping within the
+  phone's queue works today.
+- **Nothing has been exercised on real hardware.** The sync handshake, playback
+  and account handoff are correct by construction and verified statically — every
+  protocol path has a sender and a handler, both APKs carry matching signatures
+  and capability resources — but no watch has run this.
 
 ## Not yet implemented
 

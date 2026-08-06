@@ -99,6 +99,10 @@ class PhoneWearListenerService : WearableListenerService() {
             // The watch started playing locally. Stop here so the user isn't
             // hearing the same song out of two devices.
             SyncPaths.NOTIFY_WATCH_PLAYING -> onPlayer { it.pause() }
+
+            // The watch released playback. Push fresh state so it can fall back
+            // to mirroring this phone instead of showing an empty screen.
+            SyncPaths.NOTIFY_WATCH_STOPPED -> scope.launch { WearBridge.publishNowPlaying() }
         }
     }
 

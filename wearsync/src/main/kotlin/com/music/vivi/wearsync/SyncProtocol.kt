@@ -70,6 +70,16 @@ object SyncPaths {
 
     /** Watch tells the phone it stopped local playback. */
     const val NOTIFY_WATCH_STOPPED = "/vivi/notify/watch_stopped"
+
+    /**
+     * Phone tells the watch it took over playback, so the watch should drop its
+     * local queue.
+     *
+     * The mirror of [NOTIFY_WATCH_PLAYING]. Without it, "last actor wins" only
+     * holds in one direction: the watch would keep its queue forever and both
+     * devices would play at once.
+     */
+    const val NOTIFY_PHONE_PLAYING = "/vivi/notify/phone_playing"
 }
 
 /** Keys inside the DataMap wrappers used for DataClient items. */
