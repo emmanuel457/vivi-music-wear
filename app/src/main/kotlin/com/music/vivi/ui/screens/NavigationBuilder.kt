@@ -41,6 +41,7 @@ import com.music.vivi.ui.screens.search.SearchScreen
 import com.music.vivi.ui.screens.settings.AboutScreen
 import com.music.vivi.ui.screens.settings.AppearanceSettings
 import com.music.vivi.ui.screens.settings.CanvasSelection
+import com.music.vivi.ui.screens.settings.ConnectDevicesScreen
 import com.music.vivi.ui.screens.settings.FontSelectionScreen
 import com.music.vivi.ui.screens.settings.BackupAndRestore
 import com.music.vivi.ui.screens.settings.AutoBackupSettings
@@ -335,6 +336,10 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/update/notification_permission") {
         NotificationPermission(navController, scrollBehavior)
+    }
+
+    composable("settings/devices") {
+        ConnectDevicesScreen(navController, scrollBehavior)
     }
 
     composable("settings/account") {

@@ -118,6 +118,18 @@ object WearBridge {
         val service = service() ?: run { publishIdleBlocking(); return }
         val state = runCatching { captureState(service) }.getOrNull() ?: return
         putDataItem(SyncPaths.STATE_NOW_PLAYING, SyncCodec.encode(state))
+        // Same snapshot, second transport: watches get it over the Data Layer,
+        // phones and tablets over Vivi Connect.
+        com.music.vivi.connect.ConnectBridge.onPlaybackStateChanged(state)
+    }
+
+    /**
+     * Current playback state, or idle when nothing is running. Used by Connect
+     * to brief a peer the moment it links up.
+     */
+    fun snapshot(): NowPlayingState {
+        val service = service() ?: return NowPlayingState.IDLE
+        return runCatching { captureState(service) }.getOrDefault(NowPlayingState.IDLE)
     }
 
     private fun publishIdle() {

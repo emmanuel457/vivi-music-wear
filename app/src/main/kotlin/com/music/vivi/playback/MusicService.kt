@@ -470,6 +470,9 @@ class MusicService :
         com.music.vivi.wear.WearBridge.init(applicationContext)
         com.music.vivi.wear.WearBridge.attach(this)
 
+        // Vivi Connect: the same, for phones and tablets on this network.
+        com.music.vivi.connect.ConnectBridge.start(applicationContext)
+
         // Player rediness reset to false
         playerInitialized.value = false
 
