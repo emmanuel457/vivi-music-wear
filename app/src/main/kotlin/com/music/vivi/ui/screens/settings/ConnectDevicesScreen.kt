@@ -63,6 +63,8 @@ fun ConnectDevicesScreen(
 ) {
     val devices by (ConnectBridge.devices()?.collectAsState()
         ?: androidx.compose.runtime.mutableStateOf(emptyList<ConnectDevice>()))
+    val running by ConnectBridge.runningState().collectAsState()
+    val identityMissing by ConnectBridge.identityMissing.collectAsState()
 
     val remote = ConnectBridge.remoteState()
     val local = WearBridge.snapshot()
@@ -121,15 +123,24 @@ fun ConnectDevicesScreen(
 
             if (devices.size <= 1) {
                 item {
+                    // Three distinct states. Collapsing them into one message is
+                    // what made the last failure impossible to diagnose from a
+                    // screenshot: a running-but-lonely device and a device that
+                    // never started looked identical.
+                    val message = when {
+                        running -> "Looking for devices… Open Vivi Music on your " +
+                            "other device, signed into the same account and on " +
+                            "this Wi-Fi. Some guest and office networks block the " +
+                            "discovery Vivi Connect uses."
+                        identityMissing -> "Waiting for your account. Vivi Connect " +
+                            "authenticates devices using your account so playback " +
+                            "can't be controlled by strangers on the same network. " +
+                            "Sign in, then come back."
+                        else -> "Vivi Connect couldn't open a network listener on " +
+                            "this device."
+                    }
                     Text(
-                        text = if (ConnectBridge.isRunning()) {
-                            "No other devices found. Open Vivi Music on your tablet, " +
-                                "signed into the same account and on this Wi-Fi."
-                        } else {
-                            "Sign in to use Vivi Connect. Devices authenticate using " +
-                                "your account, so playback can't be controlled by " +
-                                "strangers on the same network."
-                        },
+                        text = message,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),

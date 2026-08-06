@@ -470,8 +470,8 @@ class MusicService :
         com.music.vivi.wear.WearBridge.init(applicationContext)
         com.music.vivi.wear.WearBridge.attach(this)
 
-        // Vivi Connect: the same, for phones and tablets on this network.
-        com.music.vivi.connect.ConnectBridge.start(applicationContext)
+        // Vivi Connect is started from App.onCreate, not here: a device used
+        // only as a remote never starts this service.
 
         // Player rediness reset to false
         playerInitialized.value = false

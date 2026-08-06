@@ -67,6 +67,11 @@ class App : Application(), SingletonImageLoader.Factory {
         // Start preferences cache immediately
         ViviPrefCache.start(this)
 
+        // Vivi Connect must advertise even on a device that never plays
+        // anything -- a tablet used purely as a remote would otherwise be
+        // invisible to every other device.
+        com.music.vivi.connect.ConnectBridge.start(this)
+
         // Install crash handler first
         CrashHandler.install(this)
 
