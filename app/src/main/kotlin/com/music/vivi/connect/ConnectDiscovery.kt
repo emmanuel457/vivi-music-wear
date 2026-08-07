@@ -162,18 +162,28 @@ class ConnectDiscovery(
                     attr(ConnectProtocol.ATTR_FINGERPRINT)
                 )
 
-                // Any overlap means the same account. Requiring the sets to be
-                // equal would reject two devices that merely have different
-                // account fields cached — which is the normal case, and was the
-                // bug that made two signed-in devices invisible to each other.
-                if (peerFingerprints.none { it in fingerprints }) {
+                if (peerId == selfId) return
+
+                // Discovery no longer rejects on this. The TXT record is the
+                // least reliable part of the whole path — Android's NSD is known
+                // to truncate and occasionally drop attributes — and dropping a
+                // peer here made a valid device permanently invisible with no
+                // way to tell that from "never saw it". Authentication now
+                // happens in the TCP handshake, where the full identity set
+                // travels over a stream we control. This is only a hint for the
+                // UI and for diagnostics.
+                val sameAccountHint = peerFingerprints.any { it in fingerprints }
+                if (!sameAccountHint) {
                     _status.value = _status.value.copy(
                         rejectedDifferentAccount = _status.value.rejectedDifferentAccount + 1,
                     )
-                    Timber.d("Ignoring Connect peer on a different account")
-                    return
+                    Timber.i(
+                        "Peer %s advertised %s; we advertise %s — deferring to the handshake",
+                        peerId.take(6),
+                        peerFingerprints.joinToString(",") { it.take(4) },
+                        fingerprints.joinToString(",") { it.take(4) },
+                    )
                 }
-                if (peerId == selfId) return
 
                 val host = resolved.host?.hostAddress ?: return
                 _peers.value = _peers.value + (peerId to ConnectDevice(
@@ -181,6 +191,7 @@ class ConnectDiscovery(
                     name = attr(ConnectProtocol.ATTR_DEVICE_NAME) ?: "Vivi device",
                     host = host,
                     port = resolved.port,
+                    sameAccountHint = sameAccountHint,
                 ))
                 Timber.i("Connect found %s at %s:%d", peerId.take(6), host, resolved.port)
             }

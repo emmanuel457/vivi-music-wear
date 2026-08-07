@@ -127,4 +127,10 @@ data class ConnectDevice(
     /** True when this device currently holds the audio. */
     val isPlaying: Boolean = false,
     val connected: Boolean = false,
+    /**
+     * Whether the advertised TXT record matched our account. Only a hint — the
+     * handshake is authoritative, because the TXT record is the least reliable
+     * link in the chain.
+     */
+    val sameAccountHint: Boolean = true,
 )

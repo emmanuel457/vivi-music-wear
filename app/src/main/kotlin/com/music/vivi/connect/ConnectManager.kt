@@ -169,10 +169,17 @@ class ConnectManager(
             val payload = SyncCodec.decodeOrNull<ConnectHello>(decode(hello.data))
             val peerFingerprints = ConnectProtocol.decodeFingerprints(payload?.fingerprint)
             if (payload == null || peerFingerprints.none { it in fingerprints }) {
-                Timber.w("Refused a Connect peer with a bad fingerprint")
+                // Logged with both sets, because "refused" alone is exactly the
+                // dead end that made this take several rounds to diagnose.
+                Timber.w(
+                    "Refused a peer: it offered [%s], we accept [%s]",
+                    peerFingerprints.joinToString(",") { it.take(6) },
+                    fingerprints.joinToString(",") { it.take(6) },
+                )
                 link.close()
                 return
             }
+            Timber.i("Handshake accepted from %s", payload.deviceName)
             link.peerId = payload.deviceId
             link.send(ConnectFrame(ConnectProtocol.PATH_WELCOME))
             adopt(link)
