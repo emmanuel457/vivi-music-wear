@@ -15,6 +15,10 @@ import com.music.vivi.constants.AccountEmailKey
 import com.music.vivi.constants.AccountNameKey
 import com.music.vivi.constants.DataSyncIdKey
 import com.music.vivi.constants.InnerTubeCookieKey
+import com.music.vivi.constants.ConnectRelayEnabledKey
+import com.music.vivi.constants.ConnectRelayRoomKey
+import com.music.vivi.constants.ListenTogetherServerUrlKey
+import com.music.vivi.listentogether.ListenTogetherServers
 import com.music.vivi.playback.queues.ListQueue
 import com.music.vivi.utils.dataStore
 import com.music.vivi.utils.getAsync
@@ -95,6 +99,18 @@ object ConnectBridge {
                 delay(IDENTITY_RETRY_MS)
             }
         }
+
+        restoreRelay(app)
+    }
+
+    /** Remembers the room so a rejoin needs no code, and reflects host/guest. */
+    private fun persistRoom(app: Context, code: String?) {
+        scope.launch {
+            app.dataStore.edit { settings ->
+                if (code.isNullOrBlank()) settings.remove(ConnectRelayRoomKey)
+                else settings[ConnectRelayRoomKey] = code
+            }
+        }
     }
 
     private val _identityMissing = MutableStateFlow(true)
@@ -148,6 +164,84 @@ object ConnectBridge {
     fun status(): StateFlow<ConnectStatus> =
         manager?.status ?: MutableStateFlow(ConnectStatus())
 
+    // ── Relay fallback ───────────────────────────────────────────────────────
+
+    private val relay = ConnectRelay()
+
+    val relayState: StateFlow<RelayState> get() = relay.state
+
+    /** Pairing code to type into another device; null until hosting/joined. */
+    val relayRoomCode: StateFlow<String?> get() = relay.roomCode
+
+    /**
+     * Brings the relay up. Off unless the user turns it on: this is the only
+     * part of Vivi Connect that sends anything to a server the user does not
+     * control.
+     *
+     * @param joinCode null to host, or a code shown by another device.
+     */
+    fun startRelay(context: Context, joinCode: String?) {
+        val app = context.applicationContext
+        scope.launch {
+            val identities = resolveIdentities(app)
+            val prints = ConnectProtocol.fingerprints(identities)
+            if (prints.isEmpty()) {
+                Timber.w("Relay needs a signed-in account to authenticate devices")
+                return@launch
+            }
+            relay.fingerprints = prints
+            relay.onFrame = { frame ->
+                // Same dispatch as the LAN transport: state updates the mirror,
+                // everything else acts on this device's player.
+                if (frame.path == SyncPaths.STATE_NOW_PLAYING) {
+                    SyncCodec.decodeOrNull<NowPlayingState>(frame.payloadBytes())
+                        ?.let { manager?.applyRemoteState(it) }
+                } else {
+                    execute(frame.path, frame.payloadBytes())
+                }
+            }
+
+            val serverUrl = app.dataStore.getAsync(ListenTogetherServerUrlKey)
+                ?.takeIf { it.isNotBlank() }
+                ?: ListenTogetherServers.defaultServerUrl
+
+            // The username doubles as proof of account: the host approves a join
+            // only when it recognises the fingerprint embedded here.
+            val username = "vivi-${prints.first()}"
+
+            app.dataStore.edit { it[ConnectRelayEnabledKey] = true }
+            relay.start(serverUrl, username, joinCode)
+
+            // Persist whatever room we end up in, host or guest, so the next
+            // launch rejoins without the user finding the code again.
+            scope.launch {
+                relay.roomCode.collect { code -> persistRoom(app, code) }
+            }
+        }
+    }
+
+    fun stopRelay(context: Context) {
+        relay.stop()
+        scope.launch {
+            context.applicationContext.dataStore.edit { it[ConnectRelayEnabledKey] = false }
+        }
+    }
+
+    /** Re-establishes the relay on launch if the user previously enabled it. */
+    private fun restoreRelay(app: Context) {
+        scope.launch {
+            if (app.dataStore.getAsync(ConnectRelayEnabledKey) != true) return@launch
+            val savedRoom = app.dataStore.getAsync(ConnectRelayRoomKey)
+            Timber.i("Restoring relay (room=%s)", savedRoom ?: "host")
+            startRelay(app, savedRoom)
+        }
+    }
+
+    /** Broadcasts state over the relay too, when it is up. */
+    private fun relayBroadcast(state: NowPlayingState) {
+        relay.sendFrame(relayFrame(SyncPaths.STATE_NOW_PLAYING, SyncCodec.encode(state)))
+    }
+
     private const val IDENTITY_RETRY_MS = 15_000L
 
     fun stop() {
@@ -158,11 +252,16 @@ object ConnectBridge {
     /** Called from MusicService's event hook, alongside the watch publish. */
     fun onPlaybackStateChanged(state: NowPlayingState) {
         manager?.broadcastState(state)
+        relayBroadcast(state)
     }
 
     /** Sends a transport command to the peer currently holding playback. */
     fun sendCommand(path: String, payload: ByteArray = ByteArray(0)) {
         manager?.sendToActivePeer(path, payload)
+        // Sent over both transports. A device reachable on the LAN and via the
+        // relay would otherwise miss the command whenever the LAN link is the
+        // one that happens to be down.
+        relay.sendFrame(relayFrame(path, payload))
     }
 
     /**

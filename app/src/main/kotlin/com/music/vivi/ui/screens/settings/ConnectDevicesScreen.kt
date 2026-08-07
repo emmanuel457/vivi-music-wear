@@ -39,6 +39,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.music.vivi.connect.RelayState
 import com.music.vivi.connect.ConnectBridge
 import com.music.vivi.connect.ConnectDevice
 import com.music.vivi.wearsync.SyncCodec
@@ -211,6 +220,121 @@ fun ConnectDevicesScreen(
                             transferTo()
                         },
                 )
+            }
+
+            item { RelaySection() }
+        }
+    }
+}
+
+/**
+ * The opt-in internet fallback.
+ *
+ * Kept visually separate and off by default because it is the one part of
+ * Connect that leaves your network: it relays through the Listen Together
+ * servers this app already ships, which are run by the upstream author rather
+ * than by you.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun RelaySection() {
+    val context = LocalContext.current
+    val relayState by ConnectBridge.relayState.collectAsState()
+    val roomCode by ConnectBridge.relayRoomCode.collectAsState()
+    var codeInput by remember { mutableStateOf("") }
+    var showJoin by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        HorizontalDivider(modifier = Modifier.padding(bottom = 12.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Control over the internet",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = when (relayState) {
+                        RelayState.OFF ->
+                            "Off. Devices only find each other on the same Wi-Fi."
+                        RelayState.CONNECTING -> "Connecting…"
+                        RelayState.HOSTING ->
+                            "On. Other devices can join with the code below."
+                        RelayState.JOINED -> "On. Connected to your other device."
+                        RelayState.FAILED -> "Couldn't reach the relay server. Retrying…"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = relayState != RelayState.OFF,
+                onCheckedChange = { enabled ->
+                    if (enabled) ConnectBridge.startRelay(context, null)
+                    else ConnectBridge.stopRelay(context)
+                },
+            )
+        }
+
+        if (relayState == RelayState.OFF) {
+            Text(
+                text = "Relays playback state through a public Listen Together " +
+                    "server so your devices can reach each other from anywhere. " +
+                    "Leave this off if you only use them at home.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
+        // Room codes are issued by the server, so a device cannot work out which
+        // room to join on its own. This one-time handover is what replaces the
+        // mDNS fingerprint the LAN transport matches on.
+        roomCode?.let { code ->
+            Text(
+                text = "Pairing code",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                text = code,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = "Enter this on your other device once. Both reconnect on " +
+                    "their own after that.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (relayState != RelayState.OFF) {
+            TextButton(
+                onClick = { showJoin = !showJoin },
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Text(if (showJoin) "Cancel" else "Join with a code instead")
+            }
+        }
+
+        if (showJoin) {
+            OutlinedTextField(
+                value = codeInput,
+                onValueChange = { codeInput = it.uppercase().trim() },
+                label = { Text("Pairing code") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = {
+                    ConnectBridge.startRelay(context, codeInput)
+                    showJoin = false
+                },
+                enabled = codeInput.isNotBlank(),
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text("Join")
             }
         }
     }

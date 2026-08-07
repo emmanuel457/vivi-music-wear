@@ -269,6 +269,11 @@ class ConnectManager(
         }
     }
 
+    /** Mirrors a peer's state that arrived over a transport other than the LAN. */
+    fun applyRemoteState(state: NowPlayingState) {
+        _remoteState.value = state
+    }
+
     /** Pushes this device's playback state to every linked peer. */
     fun broadcastState(state: NowPlayingState) {
         broadcast(

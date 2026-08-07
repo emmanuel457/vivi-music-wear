@@ -802,3 +802,8 @@ val SuggestionRegionSlugToName =
         "ae" to "United Arab Emirates",
         "il" to "Israel"
     )
+
+// Vivi Connect relay fallback. Off unless explicitly enabled: it is the only
+// part of Connect that sends anything to a server the user does not control.
+val ConnectRelayEnabledKey = booleanPreferencesKey("connectRelayEnabled")
+val ConnectRelayRoomKey = stringPreferencesKey("connectRelayRoom")
