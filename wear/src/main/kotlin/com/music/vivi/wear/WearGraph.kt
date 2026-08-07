@@ -9,9 +9,11 @@ import android.content.Context
 import androidx.media3.common.util.UnstableApi
 import com.music.vivi.wear.data.LibraryStore
 import com.music.vivi.wear.data.PhoneLink
+import com.music.vivi.wear.data.WearDownloadManager
 import com.music.vivi.wear.data.WearPrefs
 import com.music.vivi.wear.data.YouTubeSession
 import com.music.vivi.wear.playback.PlaybackRouter
+import com.music.vivi.wearsync.SyncCodec
 import com.music.vivi.wearsync.SyncPaths
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,8 @@ object WearGraph {
         private set
     lateinit var router: PlaybackRouter
         private set
+    lateinit var downloads: WearDownloadManager
+        private set
 
     @Volatile
     private var initialized = false
@@ -59,6 +63,11 @@ object WearGraph {
         phoneLink = PhoneLink(app)
         session = YouTubeSession(prefs, scope)
         router = PlaybackRouter(app, phoneLink, prefs, scope)
+        downloads = WearDownloadManager(app, prefs, scope).apply {
+            onDownloadedToWatch = { track ->
+                phoneLink.sendAsync(SyncPaths.CMD_DOWNLOAD, SyncCodec.encode(track))
+            }
+        }
 
         // Flip the flag before starting anything. router.start() binds a
         // MediaController, which brings up WearMusicService, whose onCreate
@@ -72,6 +81,7 @@ object WearGraph {
         router.start()
 
         scope.launch { library.load() }
+        scope.launch { downloads.load() }
     }
 
     /** Asks the phone for a fresh library snapshot and current transport state. */

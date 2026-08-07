@@ -27,6 +27,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.music.vivi.wear.MainActivity
 import com.music.vivi.wear.WearGraph
+import com.music.vivi.wear.data.WearDownloadManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -114,13 +115,29 @@ class WearMusicService : MediaSessionService() {
                 .build()
         )
 
-        val cacheFactory = CacheDataSource.Factory()
+        val streamCacheFactory = CacheDataSource.Factory()
             .setCache(playerCache(this))
             .setUpstreamDataSourceFactory(upstream)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
+        // Downloads are read first and never written here — WearDownloadManager
+        // owns writes via CacheWriter. Chaining them means a downloaded track is
+        // served from the watch's own storage before anything considers the
+        // network, which is what makes offline playback actually offline.
+        val downloadCache = WearDownloadManager.downloadCache(this)
+        val cacheFactory = CacheDataSource.Factory()
+            .setCache(downloadCache)
+            .setUpstreamDataSourceFactory(streamCacheFactory)
+            .setCacheWriteDataSinkFactory(null)
+
         return ResolvingDataSource.Factory(cacheFactory) { dataSpec: DataSpec ->
             val mediaId = dataSpec.key ?: return@Factory dataSpec
+
+            // Fully downloaded: resolve nothing. Hitting YouTube here would make
+            // an offline watch fail on a track it already has.
+            if (downloadCache.isCached(mediaId, dataSpec.position, CHUNK_LENGTH)) {
+                return@Factory dataSpec
+            }
 
             // Already on disk for this range — leave the spec alone so the cache
             // serves it without touching the network.

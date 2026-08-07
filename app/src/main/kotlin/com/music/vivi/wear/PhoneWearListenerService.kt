@@ -11,6 +11,11 @@ import androidx.core.content.getSystemService
 import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
+import androidx.core.net.toUri
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
+import com.music.vivi.playback.ExoDownloadService
+import com.music.vivi.wearsync.WearTrack
 import com.music.vivi.db.MusicDatabase
 import com.music.vivi.playback.queues.ListQueue
 import com.music.vivi.wearsync.LikeCommand
@@ -91,6 +96,13 @@ class PhoneWearListenerService : WearableListenerService() {
                 adjustVolume(command.steps)
             }
 
+            // The watch downloaded a track; store it here too so "offline" means
+            // offline on both devices.
+            SyncPaths.CMD_DOWNLOAD -> {
+                val track = SyncCodec.decodeOrNull<WearTrack>(event.data) ?: return
+                downloadOnPhone(track)
+            }
+
             SyncPaths.CMD_PLAY_TRACKS -> {
                 val command = SyncCodec.decodeOrNull<PlayTracksCommand>(event.data) ?: return
                 playFromWatch(command)
@@ -104,6 +116,27 @@ class PhoneWearListenerService : WearableListenerService() {
             // to mirroring this phone instead of showing an empty screen.
             SyncPaths.NOTIFY_WATCH_STOPPED -> scope.launch { WearBridge.publishNowPlaying() }
         }
+    }
+
+    /**
+     * Enqueues the same download on the phone, using the app's existing
+     * ExoDownloadService rather than a parallel mechanism, so it appears in the
+     * phone's Downloads library exactly like one started from the phone UI.
+     */
+    private fun downloadOnPhone(track: WearTrack) {
+        runCatching {
+            val request = DownloadRequest.Builder(track.id, track.id.toUri())
+                .setCustomCacheKey(track.id)
+                .setData(track.title.toByteArray())
+                .build()
+            DownloadService.sendAddDownload(
+                this,
+                ExoDownloadService::class.java,
+                request,
+                false,
+            )
+            Timber.i("Mirrored watch download of %s to the phone", track.title)
+        }.onFailure { Timber.w(it, "Could not mirror download of %s", track.id) }
     }
 
     private fun playFromWatch(command: PlayTracksCommand) {

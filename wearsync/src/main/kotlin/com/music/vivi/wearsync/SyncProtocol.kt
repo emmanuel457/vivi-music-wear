@@ -51,6 +51,12 @@ object SyncPaths {
     const val CMD_VOLUME = "/vivi/cmd/volume"
     const val CMD_PLAY_TRACKS = "/vivi/cmd/play_tracks"
 
+    /**
+     * Watch asks the phone to download a track too, so the same song is offline
+     * on both devices rather than only on whichever one the user tapped.
+     */
+    const val CMD_DOWNLOAD = "/vivi/cmd/download"
+
     // ── Watch -> phone requests (MessageClient) ──────────────────────────────
     /** Ask the phone to re-publish [STATE_NOW_PLAYING] immediately. */
     const val REQ_STATE = "/vivi/req/state"

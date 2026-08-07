@@ -62,5 +62,6 @@
     <string name="cd_repeat">Repeat</string>
     <string name="cd_like">Like</string>
     <string name="cd_output">Output device</string>
+    <string name="cd_download">Download to watch</string>
     <string name="cd_artwork">Album artwork</string>
 </resources>
