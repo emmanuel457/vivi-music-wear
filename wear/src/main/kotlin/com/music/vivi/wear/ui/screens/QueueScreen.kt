@@ -5,22 +5,35 @@
 
 package com.music.vivi.wear.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.itemsIndexed
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.material3.Icon
+import androidx.wear.compose.material3.IconButton
 import androidx.wear.compose.material3.ListHeader
+import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
 import com.music.vivi.wear.R
 import com.music.vivi.wear.WearGraph
 import com.music.vivi.wear.playback.ActiveRoute
+import com.music.vivi.wearsync.SyncRepeatMode
 import com.music.vivi.wear.ui.components.StatusMessage
 import com.music.vivi.wear.ui.components.TrackRow
 
@@ -42,6 +55,50 @@ fun QueueScreen() {
         ) {
             item {
                 ListHeader { Text(state.queueTitle ?: stringResource(R.string.queue)) }
+            }
+
+            // Shuffle and repeat live here rather than on Now Playing: they act
+            // on this list, and on Now Playing they were two of the seven
+            // controls that pushed the row off the bottom of a round screen.
+            item {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    IconButton(
+                        onClick = { WearGraph.router.toggleShuffle() },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Shuffle,
+                            contentDescription = stringResource(R.string.cd_shuffle),
+                            tint = if (state.shuffle) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    IconButton(
+                        onClick = { WearGraph.router.cycleRepeatMode() },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (state.repeatMode == SyncRepeatMode.ONE) {
+                                Icons.Rounded.RepeatOne
+                            } else {
+                                Icons.Rounded.Repeat
+                            },
+                            contentDescription = stringResource(R.string.cd_repeat),
+                            tint = if (state.repeatMode == SyncRepeatMode.OFF) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                        )
+                    }
+                }
             }
 
             if (state.queue.isEmpty()) {
