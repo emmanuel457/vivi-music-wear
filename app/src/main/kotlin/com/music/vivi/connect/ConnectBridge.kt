@@ -57,7 +57,26 @@ object ConnectBridge {
     private var manager: ConnectManager? = null
 
     /** What a peer device is playing, for the picker and remote-control UI. */
-    fun remoteState(): NowPlayingState = manager?.remoteState?.value ?: NowPlayingState.IDLE
+    fun remoteState(): NowPlayingState = _remoteState.value
+
+    private val _remoteState = MutableStateFlow(NowPlayingState.IDLE)
+
+    /**
+     * Peer playback, as a flow.
+     *
+     * Kept here rather than read off [ConnectManager] so it survives the manager
+     * being null before startup and stays a single source whether the frame
+     * arrived over the LAN or the relay.
+     */
+    val remoteStateFlow: StateFlow<NowPlayingState> = _remoteState.asStateFlow()
+
+    private val _remoteOwnsPlayback = MutableStateFlow(false)
+
+    /**
+     * True when a peer holds the audio and this device does not. Drives whether
+     * the MediaSession is backed by the local player or by the remote one.
+     */
+    val remoteOwnsPlayback: StateFlow<Boolean> = _remoteOwnsPlayback.asStateFlow()
 
     fun devices() = manager?.devices
 
@@ -83,6 +102,16 @@ object ConnectBridge {
         instance.onCommand = { path, payload -> execute(path, payload) }
 
         manager = instance
+
+        // Funnel LAN frames into the single remote-state flow, and recompute who
+        // owns playback. "A peer is playing and we are not" is the whole
+        // condition for handing our MediaSession to the remote player.
+        scope.launch {
+            instance.remoteState.collect { state ->
+                _remoteState.value = state
+                recomputeOwnership()
+            }
+        }
 
         scope.launch {
             // Sign-in can happen long after launch, and the identity fields are
@@ -194,8 +223,13 @@ object ConnectBridge {
                 // Same dispatch as the LAN transport: state updates the mirror,
                 // everything else acts on this device's player.
                 if (frame.path == SyncPaths.STATE_NOW_PLAYING) {
-                    SyncCodec.decodeOrNull<NowPlayingState>(frame.payloadBytes())
-                        ?.let { manager?.applyRemoteState(it) }
+                    SyncCodec.decodeOrNull<NowPlayingState>(frame.payloadBytes())?.let {
+                        manager?.applyRemoteState(it)
+                        // Also fed directly, so relay-only pairs (no LAN peer)
+                        // still drive the session swap.
+                        _remoteState.value = it
+                        recomputeOwnership()
+                    }
                 } else {
                     execute(frame.path, frame.payloadBytes())
                 }
@@ -253,6 +287,19 @@ object ConnectBridge {
     fun onPlaybackStateChanged(state: NowPlayingState) {
         manager?.broadcastState(state)
         relayBroadcast(state)
+        // Local playback starting is what takes ownership back from a peer.
+        localOwnsPlayback = state.phonePlaybackActive
+        recomputeOwnership()
+    }
+
+    @Volatile
+    private var localOwnsPlayback = false
+
+    private fun recomputeOwnership() {
+        val remote = _remoteState.value
+        _remoteOwnsPlayback.value = !localOwnsPlayback &&
+            remote.phonePlaybackActive &&
+            remote.track != null
     }
 
     /** Sends a transport command to the peer currently holding playback. */

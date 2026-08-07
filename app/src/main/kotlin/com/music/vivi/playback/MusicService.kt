@@ -357,6 +357,9 @@ class MusicService :
 
     private lateinit var mediaSession: MediaLibrarySession
 
+    /** Backs the session while another device holds the audio. */
+    private val connectRemotePlayer by lazy { com.music.vivi.connect.ConnectRemotePlayer() }
+
     // Tracks if player has been properly initilized
     private val playerInitialized = MutableStateFlow(false)
     val isPlayerReady: kotlinx.coroutines.flow.StateFlow<Boolean> = playerInitialized.asStateFlow()
@@ -472,6 +475,33 @@ class MusicService :
 
         // Vivi Connect is started from App.onCreate, not here: a device used
         // only as a remote never starts this service.
+
+        // When a peer holds the audio, hand this session a Player backed by that
+        // peer. Every existing surface -- miniplayer, Now Playing, notification,
+        // lockscreen -- reads from the session, so they all begin showing and
+        // driving the other device without any UI changes. This is what makes
+        // Connect behave like Spotify instead of like a separate remote screen.
+        scope.launch {
+            com.music.vivi.connect.ConnectBridge.remoteOwnsPlayback.collect { remoteOwns ->
+                runCatching {
+                    if (remoteOwns) {
+                        connectRemotePlayer.update(
+                            com.music.vivi.connect.ConnectBridge.remoteState()
+                        )
+                        if (mediaSession.player !== connectRemotePlayer) {
+                            mediaSession.player = connectRemotePlayer
+                        }
+                    } else if (mediaSession.player !== player) {
+                        mediaSession.player = player
+                    }
+                }.onFailure { Timber.tag(TAG).w(it, "Could not swap the session player") }
+            }
+        }
+        scope.launch {
+            com.music.vivi.connect.ConnectBridge.remoteStateFlow.collect { state ->
+                connectRemotePlayer.update(state)
+            }
+        }
 
         // Player rediness reset to false
         playerInitialized.value = false
