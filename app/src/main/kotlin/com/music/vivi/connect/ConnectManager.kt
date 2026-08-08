@@ -72,6 +72,17 @@ class ConnectManager(
     /** Live peer links, for the session diagnostics line. */
     fun linkCount(): Int = synchronized(links) { links.size }
 
+    /**
+     * The fingerprints this device accepts, shown in diagnostics.
+     *
+     * "account mismatch" told us two devices disagreed but not what either
+     * offered, so it was impossible to tell a genuinely different account from
+     * a bug in how the identity is derived — which is what it turned out to be.
+     */
+    @Volatile
+    var acceptedFingerprints: Set<String> = emptySet()
+        private set
+
     /** Stable identity for this device, used as the Connect ownership token. */
     fun selfId(): String = selfId
 
@@ -132,6 +143,7 @@ class ConnectManager(
             Timber.w(it, "Could not open a Connect listener")
             return
         }
+        acceptedFingerprints = fingerprints
         serverSocket = server
         _running.value = true
 
@@ -201,7 +213,7 @@ class ConnectManager(
             if (payload == null || peerFingerprints.none { it in fingerprints }) {
                 // Logged with both sets, because "refused" alone is exactly the
                 // dead end that made this take several rounds to diagnose.
-                lastInboundError = "account mismatch"
+                lastInboundError = "mismatch: they=[${peerFingerprints.joinToString(",") { it.take(4) }}] me=[${fingerprints.joinToString(",") { it.take(4) }}]"
                 Timber.w(
                     "Refused a peer: it offered [%s], we accept [%s]",
                     peerFingerprints.joinToString(",") { it.take(6) },

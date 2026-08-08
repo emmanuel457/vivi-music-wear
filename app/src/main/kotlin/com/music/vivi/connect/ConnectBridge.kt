@@ -156,6 +156,7 @@ object ConnectBridge {
             // is refused look identical from the calling side.
             m.lastDialError?.let { append(" outErr=").append(it) }
             m.lastInboundError?.let { append(" inErr=").append(it) }
+            append(" fp=[").append(m.acceptedFingerprints.joinToString(",") { it.take(4) }).append("]")
         }
         append(if (_remoteOwnsPlayback.value) " remote-session" else " local-session")
         _remoteState.value.track?.let { append(" peer=\"").append(it.title.take(18)).append('"') }
@@ -206,7 +207,10 @@ object ConnectBridge {
             // on the single reading available at startup.
             while (true) {
                 val identities = resolveIdentities(app)
-                if (identities.isNotEmpty()) {
+                // Not merely non-empty: at least one identity has to be
+                // account-scoped, or we advertise a fingerprint set that no peer
+                // on the same account can match, permanently.
+                if (identities.isNotEmpty() && hasAccountScopedIdentity(app)) {
                     _identityMissing.value = false
                     instance.start(identities)
                     return@launch
@@ -253,10 +257,21 @@ object ConnectBridge {
 
         identities += store.getAsync(AccountEmailKey)
         identities += store.getAsync(AccountChannelHandleKey)
+        identities += store.getAsync(AccountNameKey)
 
-        // dataSyncId is "<account>||<session>"; only the leading segment is
-        // stable across devices, so the session half must be dropped.
-        identities += store.getAsync(DataSyncIdKey)?.substringBefore("||")
+        // Both halves. The app treats the part *after* "||" as the account id
+        // (App.kt), and I was taking the part before it — the per-device half —
+        // so two devices on one account hashed different strings and refused
+        // each other as "another account". Including both costs nothing and
+        // removes the guess entirely.
+        store.getAsync(DataSyncIdKey)?.let { raw ->
+            if (raw.contains("||")) {
+                identities += raw.substringAfter("||")
+                identities += raw.substringBefore("||")
+            } else {
+                identities += raw
+            }
+        }
 
         // Always ask YouTube too, not only when the cache is empty. Two devices
         // can have different subsets of these fields cached, and returning just
@@ -278,7 +293,28 @@ object ConnectBridge {
                 }
             }
         }
-        return identities.filterNot { it.isNullOrBlank() }
+        val resolved = identities.filterNot { it.isNullOrBlank() }
+        Timber.i(
+            "Connect identities: %s",
+            resolved.joinToString(",") { it!!.take(10) },
+        )
+        return resolved
+    }
+
+    /**
+     * True when at least one identity is genuinely account-scoped.
+     *
+     * dataSyncId halves and other per-install values differ between devices on
+     * the same account, so starting on those alone froze a fingerprint no peer
+     * could ever match — and because the set is computed once, the device stayed
+     * unmatchable for its whole process life. Waiting for the account's own
+     * email, handle or name makes the set comparable by construction.
+     */
+    private suspend fun hasAccountScopedIdentity(app: Context): Boolean {
+        val store = app.dataStore
+        return !store.getAsync(AccountEmailKey).isNullOrBlank() ||
+            !store.getAsync(AccountChannelHandleKey).isNullOrBlank() ||
+            !store.getAsync(AccountNameKey).isNullOrBlank()
     }
 
     /** Discovery diagnostics for the picker. */
