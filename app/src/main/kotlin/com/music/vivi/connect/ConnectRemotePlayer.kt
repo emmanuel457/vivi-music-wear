@@ -60,19 +60,17 @@ class ConnectRemotePlayer(
                 Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                 Player.COMMAND_SET_SHUFFLE_MODE,
                 Player.COMMAND_SET_REPEAT_MODE,
+                // Always advertised. Gating these on the peer's canSkipNext /
+                // canSkipPrevious meant SimpleBasePlayer refused to dispatch the
+                // command at all, so next and previous silently did nothing
+                // whenever the peer reported a single-item queue. The peer is
+                // the right place to decide it cannot skip — not us, from a
+                // snapshot that is always slightly stale.
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
             )
-            .apply {
-                // Advertised conditionally so the UI greys out skip buttons that
-                // would do nothing, exactly as it does for local playback.
-                if (snapshot.canSkipNext) {
-                    add(Player.COMMAND_SEEK_TO_NEXT)
-                    add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                }
-                if (snapshot.canSkipPrevious) {
-                    add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                    add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                }
-            }
             .build()
 
         val builder = State.Builder()

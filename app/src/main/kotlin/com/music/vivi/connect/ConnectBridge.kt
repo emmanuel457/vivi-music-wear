@@ -287,17 +287,45 @@ object ConnectBridge {
     fun onPlaybackStateChanged(state: NowPlayingState) {
         manager?.broadcastState(state)
         relayBroadcast(state)
-        // Local playback starting is what takes ownership back from a peer.
-        localOwnsPlayback = state.phonePlaybackActive
+
+        // Starting playback here takes the session over. Nothing announced this
+        // before, so playing on a second device simply forked it: two devices
+        // played at once and neither UI followed the other. This is the same
+        // last-actor-wins rule the watch has always used, which the Connect
+        // transport was missing entirely.
+        if (state.isPlaying && !wasPlayingLocally) {
+            manager?.sendToActivePeer(SyncPaths.NOTIFY_WATCH_PLAYING)
+            relay.sendFrame(relayFrame(SyncPaths.NOTIFY_WATCH_PLAYING, ByteArray(0)))
+            Timber.i("Took playback over from any peer")
+        }
+        wasPlayingLocally = state.isPlaying
+
+        localIsPlaying = state.isPlaying
+        localHasQueue = state.phonePlaybackActive
         recomputeOwnership()
     }
 
     @Volatile
-    private var localOwnsPlayback = false
+    private var wasPlayingLocally = false
 
+    @Volatile
+    private var localIsPlaying = false
+
+    @Volatile
+    private var localHasQueue = false
+
+    /**
+     * Decides which player backs this device's MediaSession.
+     *
+     * Keyed on who is actually *playing*, not on who holds a queue. Using
+     * "has a queue" meant a device that had been paused by a peer takeover
+     * still considered itself the owner forever, so it never followed the
+     * device that had taken over.
+     */
     private fun recomputeOwnership() {
         val remote = _remoteState.value
-        _remoteOwnsPlayback.value = !localOwnsPlayback &&
+        val localOwns = localIsPlaying || (localHasQueue && !remote.isPlaying)
+        _remoteOwnsPlayback.value = !localOwns &&
             remote.phonePlaybackActive &&
             remote.track != null
     }
