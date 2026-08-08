@@ -77,6 +77,7 @@ class App : Application(), SingletonImageLoader.Factory {
         // anything -- a tablet used purely as a remote would otherwise be
         // invisible to every other device.
         com.music.vivi.connect.ConnectBridge.start(this)
+        com.music.vivi.connect.ConnectPresenceService.start(this)
 
         // Install crash handler first
         CrashHandler.install(this)

@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--    bluetooth connect-->
@@ -264,6 +265,21 @@
                     android:pathPrefix="/vivi"
                     android:scheme="wear" />
             </intent-filter>
+        </service>
+
+        <!--
+          Holds the process open so this device stays reachable by Vivi Connect
+          while the app is closed. Android reclaims an idle process, and from
+          API 31 an app in the background cannot start a foreground service on
+          demand -- so it has to already be running when a peer claims playback.
+        -->
+        <service
+            android:name=".connect.ConnectPresenceService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps this device discoverable and controllable by the user's other Vivi Music devices" />
         </service>
 
         <!-- Confirmation shown before any account cookie leaves the phone. -->

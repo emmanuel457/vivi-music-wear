@@ -128,6 +128,7 @@ object ConnectBridge {
 
         instance.snapshotProvider = { WearBridge.snapshot() }
         instance.queueProvider = { WearBridge.queueSnapshot() }
+        instance.onPeerLost = { peerId -> onPeerLost(peerId) }
         instance.onCommand = { path, payload -> execute(path, payload) }
 
         manager = instance
@@ -434,6 +435,25 @@ object ConnectBridge {
     /** True when this device is the designated owner. */
     fun ownsPlayback(): Boolean =
         activeDeviceId == null || activeDeviceId == selfDeviceId
+
+    /**
+     * Releases ownership held by a device that has gone away.
+     *
+     * Without this a peer that was playing and then dropped off the network left
+     * every other device believing a dead device owned the session: their
+     * transport sent commands into a closed socket and their screens showed a
+     * track nobody could hear, with no way back short of restarting the app.
+     */
+    fun onPeerLost(peerId: String) {
+        if (activeDeviceId != peerId) return
+        Timber.i("Owner %s vanished; releasing the session", peerId.take(6))
+        activeDeviceId = null
+        _remoteState.value = NowPlayingState.IDLE
+        _remoteQueue.value = com.music.vivi.wearsync.QueueSnapshot.EMPTY
+        remotePlayer.update(NowPlayingState.IDLE)
+        remotePlayer.updateQueue(com.music.vivi.wearsync.QueueSnapshot.EMPTY)
+        recomputeOwnership()
+    }
 
     /**
      * Routes a transport command to whichever device owns playback.

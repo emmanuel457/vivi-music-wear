@@ -55,6 +55,9 @@ class ConnectManager(
     /** Supplies the current queue, so a newly linked peer is briefed fully. */
     var queueProvider: (() -> com.music.vivi.wearsync.QueueSnapshot)? = null
 
+    /** Fired when a peer link drops, so a vanished owner can be released. */
+    var onPeerLost: ((String) -> Unit)? = null
+
     private val selfId: String by lazy {
         @Suppress("HardwareIds")
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
@@ -269,6 +272,7 @@ class ConnectManager(
             }.onFailure { Timber.w(it, "Connect link to %s failed", peerId.take(6)) }
             links.remove(peerId)
             discovery.markConnected(peerId, false)
+            onPeerLost?.invoke(peerId)
             link.close()
             Timber.i("Connect dropped %s", peerId.take(6))
         }
