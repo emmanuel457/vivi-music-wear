@@ -107,6 +107,52 @@ object ConnectBridge {
 
     fun devices(): StateFlow<List<ConnectDevice>> = allDevices
 
+    private val _activeDeviceName = MutableStateFlow<String?>(null)
+
+    /**
+     * Name of the device holding the audio, or null when it is this one.
+     *
+     * Drives the "Playing on …" strip. Spotify shows this permanently while a
+     * remote device owns the session, and without it there is nothing on screen
+     * to explain why the controls are driving something you cannot hear.
+     */
+    val activeDeviceName: StateFlow<String?> = _activeDeviceName.asStateFlow()
+
+    private fun refreshActiveDeviceName() {
+        val owner = activeDeviceId
+        _activeDeviceName.value = when {
+            owner == null || owner == selfDeviceId -> null
+            else -> allDevices.value.firstOrNull { it.id == owner }?.name
+                // Named devices are better, but "another device" beats silence
+                // when a claim arrives before discovery has resolved the peer.
+                ?: "another device"
+        }
+    }
+
+    /**
+     * One-line session state for the picker.
+     *
+     * Discovery already reports whether peers are *seen*; this reports whether
+     * the session actually agrees on an owner. Without it, "linked but not
+     * syncing" and "not linked" look identical on screen, which is exactly where
+     * the last round of debugging stalled.
+     */
+    fun sessionDiagnostics(): String = buildString {
+        append("me=").append(selfDeviceId.take(6).ifEmpty { "?" })
+        append(" owner=")
+        append(
+            when (val owner = activeDeviceId) {
+                null -> "none"
+                selfDeviceId -> "me"
+                else -> owner.take(6)
+            }
+        )
+        append(" epoch=").append(epoch.get())
+        append(" links=").append(manager?.linkCount() ?: 0)
+        append(if (_remoteOwnsPlayback.value) " remote-session" else " local-session")
+        _remoteState.value.track?.let { append(" peer=\"").append(it.title.take(18)).append('"') }
+    }
+
     fun isRunning() = manager?.running?.value == true
 
     /** Observable form of [isRunning], so the picker reflects a late start. */
@@ -165,6 +211,7 @@ object ConnectBridge {
         // Feed the picker from the manager once it exists, rather than binding
         // to a null one at class-init time.
         scope.launch { instance.devices.collect { peerDevices.value = it } }
+        scope.launch { allDevices.collect { refreshActiveDeviceName() } }
         WearBridge.startWatchDiscovery()
         restoreRelay(app)
     }
@@ -347,25 +394,27 @@ object ConnectBridge {
 
     /** Called from MusicService's event hook, alongside the watch publish. */
     fun onPlaybackStateChanged(rawState: NowPlayingState) {
-        val state = stampOwnership(rawState)
-        manager?.broadcastState(state)
-        relayBroadcast(state)
-
-        // Claim whenever we are playing and are not already the recorded owner —
-        // not only on a false->true transition. A device that was already
-        // playing when a peer linked up never transitioned, so it never
-        // claimed, activeDeviceId stayed null on every peer, and their controls
-        // silently kept driving their own idle player.
-        if (rawState.isPlaying && activeDeviceId != selfDeviceId) {
+        // Claim BEFORE broadcasting. Broadcasting first sent an unclaimed
+        // snapshot — epoch 0, no owner — which a peer accepts and which drives
+        // its ownership straight back to "nobody", so the two devices ignored
+        // each other until some later frame happened to carry a claim.
+        //
+        // Guarded on a known identity: selfDeviceId is empty until the manager
+        // reports it, and claiming as "" left ownsPlayback() permanently false,
+        // so the device treated itself as a remote and drove a player that was
+        // not the one making sound. That is the "acting independently" symptom.
+        if (rawState.isPlaying && selfDeviceId.isNotEmpty() && activeDeviceId != selfDeviceId) {
             claimOwnership()
             manager?.sendToActivePeer(SyncPaths.NOTIFY_WATCH_PLAYING)
             relay.sendFrame(relayFrame(SyncPaths.NOTIFY_WATCH_PLAYING, ByteArray(0)))
             Timber.i("Claimed playback as %s (epoch %d)", selfDeviceId.take(6), epoch.get())
-            // Re-stamp: the claim above changed the very fields we just copied.
-            val claimed = stampOwnership(rawState)
-            manager?.broadcastState(claimed)
-            relayBroadcast(claimed)
         }
+
+        // One broadcast, always carrying the current claim.
+        val state = stampOwnership(rawState)
+        manager?.broadcastState(state)
+        relayBroadcast(state)
+
         wasPlayingLocally = rawState.isPlaying
         recomputeOwnership()
     }
@@ -430,6 +479,7 @@ object ConnectBridge {
         _remoteOwnsPlayback.value = owner != null &&
             owner != selfDeviceId &&
             remote.track != null
+    refreshActiveDeviceName()
     }
 
     /** True when this device is the designated owner. */
@@ -465,6 +515,50 @@ object ConnectBridge {
      */
     fun dispatchTransport(path: String, payload: ByteArray = ByteArray(0)) {
         if (ownsPlayback()) execute(path, payload) else sendCommand(path, payload)
+    }
+
+    /**
+     * Hands playback to one specific device, carrying the whole context.
+     *
+     * Targeted rather than broadcast: sending CMD_PLAY_TRACKS to everyone would
+     * start the queue on every device at once, which with three devices is worse
+     * than not transferring at all. Watches are reached over the Data Layer and
+     * everything else over the LAN mesh, which is why the route is chosen from
+     * the device kind rather than assumed.
+     */
+    fun transferPlaybackTo(device: ConnectDevice) {
+        if (device.isSelf) return
+        val queue = queueForTransfer()
+        val playing = if (ownsPlayback()) WearBridge.snapshot() else _remoteState.value
+
+        val tracks = queue.tracks.ifEmpty { listOfNotNull(playing.track) }
+        if (tracks.isEmpty()) {
+            Timber.i("Nothing to transfer to %s", device.name)
+            return
+        }
+        val index = if (queue.tracks.isNotEmpty()) queue.currentIndex else 0
+
+        val payload = SyncCodec.encode(
+            PlayTracksCommand(
+                tracks = tracks.take(PlayTracksCommand.MAX_TRACKS),
+                startIndex = index.coerceIn(0, tracks.lastIndex),
+                queueTitle = queue.queueTitle ?: playing.queueTitle,
+                positionMs = playing.positionMs,
+                shuffle = playing.shuffle,
+                repeatMode = playing.repeatMode,
+            )
+        )
+
+        when (device.kind) {
+            DeviceKind.WATCH ->
+                WearBridge.sendToWatchNode(device.id, SyncPaths.CMD_PLAY_TRACKS, payload)
+            else -> {
+                val sent = manager?.sendTo(device.id, SyncPaths.CMD_PLAY_TRACKS, payload) == true
+                // Relay is the fallback when the target is not on this network.
+                if (!sent) relay.sendFrame(relayFrame(SyncPaths.CMD_PLAY_TRACKS, payload))
+            }
+        }
+        Timber.i("Transferred playback to %s", device.name)
     }
 
     /** Sends a transport command to the peer currently holding playback. */

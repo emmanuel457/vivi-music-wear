@@ -133,6 +133,16 @@ object WearBridge {
             kind = com.music.vivi.connect.DeviceKind.WATCH,
         )
 
+    /** Sends to one watch node, for a targeted playback transfer. */
+    fun sendToWatchNode(nodeId: String, path: String, payload: ByteArray) {
+        if (!::appContext.isInitialized) return
+        scope.launch {
+            runCatching {
+                Wearable.getMessageClient(appContext).sendMessage(nodeId, path, payload).await()
+            }.onFailure { Timber.w(it, "Could not send %s to watch %s", path, nodeId) }
+        }
+    }
+
     /** Fire-and-forget message to every paired watch running Vivi Music. */
     private suspend fun sendToWatches(path: String, payload: ByteArray = ByteArray(0)) {
         if (!::appContext.isInitialized) return

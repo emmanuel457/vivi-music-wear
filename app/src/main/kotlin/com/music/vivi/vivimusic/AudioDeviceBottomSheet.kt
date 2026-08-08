@@ -63,6 +63,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.material.icons.Icons
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.TabletAndroid
+import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material.icons.filled.Battery1Bar
 import androidx.compose.material.icons.filled.Battery2Bar
 import androidx.compose.material.icons.filled.Battery4Bar
@@ -555,6 +560,11 @@ fun AudioDeviceBottomSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier)
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
+
+                    // Spotify puts speakers and Connect devices in one sheet,
+                    // because from the user's point of view both answer the same
+                    // question: where is the sound coming out?
+                    ConnectDevicesSection(onDismiss = onDismiss)
 
                     AudioQualitySelector(context)
 
@@ -1199,5 +1209,85 @@ fun DeviceSelector(
                 }
             }
         }
+    }
+}
+
+/**
+ * Vivi Connect devices, listed alongside the audio outputs above.
+ *
+ * The two arrive from completely different places — one from AudioManager, one
+ * from the Connect mesh — but a user opening this sheet is asking one question:
+ * where does the sound come out? Splitting that across two screens is the kind
+ * of seam only the implementer can see.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun ConnectDevicesSection(onDismiss: () -> Unit) {
+    val devices by com.music.vivi.connect.ConnectBridge.devices().collectAsState()
+    val activeName by com.music.vivi.connect.ConnectBridge.activeDeviceName.collectAsState()
+
+    // Nothing to offer when this is the only device on the account.
+    if (devices.size <= 1) return
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Your devices",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+
+        devices.forEach { device ->
+            val isActive = if (device.isSelf) activeName == null else device.name == activeName
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(enabled = !isActive) {
+                        com.music.vivi.connect.ConnectBridge.transferPlaybackTo(device)
+                        onDismiss()
+                    }
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+            ) {
+                Icon(
+                    imageVector = when (device.kind) {
+                        com.music.vivi.connect.DeviceKind.WATCH -> Icons.Rounded.Watch
+                        com.music.vivi.connect.DeviceKind.TABLET -> Icons.Rounded.TabletAndroid
+                        com.music.vivi.connect.DeviceKind.FOLDABLE -> Icons.Rounded.Smartphone
+                        else -> Icons.Rounded.PhoneAndroid
+                    },
+                    contentDescription = null,
+                    tint = if (isActive) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = device.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (isActive) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                    Text(
+                        text = when {
+                            isActive -> "Playing here"
+                            device.isSelf -> "This device"
+                            else -> "Tap to play here"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }

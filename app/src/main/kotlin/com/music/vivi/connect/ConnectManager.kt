@@ -69,6 +69,9 @@ class ConnectManager(
             ?: "${Build.MANUFACTURER} ${Build.MODEL}"
     }
 
+    /** Live peer links, for the session diagnostics line. */
+    fun linkCount(): Int = synchronized(links) { links.size }
+
     /** Stable identity for this device, used as the Connect ownership token. */
     fun selfId(): String = selfId
 
@@ -314,6 +317,21 @@ class ConnectManager(
                 data = encode(SyncCodec.encode(state)),
             )
         )
+    }
+
+    /**
+     * Sends to one specific peer.
+     *
+     * Transfer must be targeted: broadcasting CMD_PLAY_TRACKS would start the
+     * queue on every device at once, which with three devices is worse than not
+     * transferring at all.
+     */
+    fun sendTo(peerId: String, path: String, payload: ByteArray = ByteArray(0)): Boolean {
+        val link = synchronized(links) { links[peerId] } ?: return false
+        return runCatching {
+            link.send(ConnectFrame(path, encode(payload)))
+            true
+        }.getOrDefault(false)
     }
 
     /** Sends a transport command to whichever peer currently holds playback. */

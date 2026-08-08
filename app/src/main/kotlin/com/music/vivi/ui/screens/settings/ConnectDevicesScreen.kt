@@ -224,10 +224,35 @@ fun ConnectDevicesScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(enabled = !device.isSelf) {
-                            transferTo()
+                            ConnectBridge.transferPlaybackTo(device)
                         },
                 )
             }
+
+            item {
+
+
+                Text(
+
+
+                    text = ConnectBridge.sessionDiagnostics(),
+
+
+                    style = MaterialTheme.typography.bodySmall,
+
+
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+
+
+                )
+
+
+            }
+
+
 
             item { RelaySection() }
         }
@@ -347,42 +372,6 @@ private fun RelaySection() {
     }
 }
 
-/**
- * Hands the current queue to the peer.
- *
- * Sends the tracks themselves rather than ids: the target may never have seen
- * them, and making it re-resolve every id over the network would add seconds of
- * silence to the handover.
- */
-@androidx.annotation.OptIn(UnstableApi::class)
-private fun transferTo() {
-    val queue = ConnectBridge.queueForTransfer()
-    // Fall back to the single current track only when no queue is known, which
-    // is the case for a device that has just linked up.
-    val local = WearBridge.snapshot()
-    val remote = ConnectBridge.remoteState()
-    val playing = if (ConnectBridge.ownsPlayback()) local else remote
-
-    val tracks = queue.tracks.ifEmpty { listOfNotNull(playing.track) }
-    if (tracks.isEmpty()) return
-
-    val index = if (queue.tracks.isNotEmpty()) queue.currentIndex else 0
-
-    ConnectBridge.sendCommand(
-        SyncPaths.CMD_PLAY_TRACKS,
-        SyncCodec.encode(
-            PlayTracksCommand(
-                tracks = tracks,
-                startIndex = index.coerceIn(0, tracks.lastIndex),
-                queueTitle = queue.queueTitle ?: playing.queueTitle,
-                // The whole point of a transfer: the music continues rather
-                // than restarting.
-                positionMs = playing.positionMs,
-                shuffle = playing.shuffle,
-                repeatMode = playing.repeatMode,
-            )
-        ),
-    )
-    // The peer pauses us via NOTIFY_WATCH_PLAYING once it starts, so we do not
-    // stop here -- doing both would race and could leave nothing playing.
-}
+// Transfer lives in ConnectBridge.transferPlaybackTo, which targets one device.
+// The version that used to live here broadcast the queue to every peer, so with
+// three devices it started playback on all of them at once.

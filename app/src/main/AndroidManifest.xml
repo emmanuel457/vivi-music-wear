@@ -271,7 +271,7 @@
           Holds the process open so this device stays reachable by Vivi Connect
           while the app is closed. Android reclaims an idle process, and from
           API 31 an app in the background cannot start a foreground service on
-          demand -- so it has to already be running when a peer claims playback.
+          demand, so it has to already be running when a peer claims playback.
         -->
         <service
             android:name=".connect.ConnectPresenceService"
