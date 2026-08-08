@@ -25,6 +25,9 @@ import com.music.vivi.wearsync.WearTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
@@ -89,6 +92,45 @@ object WearBridge {
 
     @Volatile
     private var wasPlaying = false
+
+    private val _watches = MutableStateFlow<List<com.music.vivi.connect.ConnectDevice>>(emptyList())
+
+    /**
+     * Paired watches running Vivi Music, shaped as Connect devices so the picker
+     * can list them beside phones and tablets. The watch is a real playback
+     * device — it streams on its own and has its own downloads — so hiding it
+     * from the device list made it look like an accessory rather than a peer.
+     */
+    val watches: StateFlow<List<com.music.vivi.connect.ConnectDevice>> = _watches.asStateFlow()
+
+    /** Keeps [watches] current. The Data Layer, not NSD, is the watch's transport. */
+    fun startWatchDiscovery() {
+        if (!::appContext.isInitialized) return
+        val client = Wearable.getCapabilityClient(appContext)
+        client.addListener(
+            { info -> _watches.value = info.nodes.map(::toDevice) },
+            SyncCapabilities.WATCH,
+        )
+        scope.launch {
+            runCatching {
+                client.getCapability(SyncCapabilities.WATCH, CapabilityClient.FILTER_REACHABLE)
+                    .await()
+                    .nodes
+            }.onSuccess { nodes -> _watches.value = nodes.map(::toDevice) }
+                .onFailure { Timber.w(it, "Could not enumerate paired watches") }
+        }
+    }
+
+    private fun toDevice(node: com.google.android.gms.wearable.Node) =
+        com.music.vivi.connect.ConnectDevice(
+            id = node.id,
+            name = node.displayName,
+            // Not addressable by IP; commands reach it over the Data Layer.
+            host = "wear",
+            port = 0,
+            connected = true,
+            kind = com.music.vivi.connect.DeviceKind.WATCH,
+        )
 
     /** Fire-and-forget message to every paired watch running Vivi Music. */
     private suspend fun sendToWatches(path: String, payload: ByteArray = ByteArray(0)) {

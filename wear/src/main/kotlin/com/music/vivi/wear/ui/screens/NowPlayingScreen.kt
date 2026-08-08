@@ -17,6 +17,8 @@ import androidx.wear.compose.foundation.lazy.itemsIndexed
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.compose.material.icons.rounded.Devices
 import com.music.vivi.wear.ui.components.TrackRow
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -214,15 +216,15 @@ fun NowPlayingScreen(navController: NavHostController) {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 12.dp),
+                .padding(bottom = 22.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 IconButton(
                     onClick = { WearGraph.router.toggleLike() },
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(22.dp),
                 ) {
                     Icon(
                         imageVector = if (track.liked) {
@@ -245,7 +247,7 @@ fun NowPlayingScreen(navController: NavHostController) {
                 val downloadState = downloads[track.id] ?: DownloadState.NONE
                 IconButton(
                     onClick = { WearGraph.downloads.toggle(track) },
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(22.dp),
                 ) {
                     Icon(
                         imageVector = when (downloadState) {
@@ -271,7 +273,7 @@ fun NowPlayingScreen(navController: NavHostController) {
                         }
                         scope.launch { WearGraph.router.setPreferredRoute(next) }
                     },
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(22.dp),
                 ) {
                     Icon(
                         // Reflects the *preference* being cycled, not the route
@@ -295,12 +297,29 @@ fun NowPlayingScreen(navController: NavHostController) {
             // than a fourth control competing with the three above it.
             Box(
                 modifier = Modifier
-                    .width(26.dp)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f))
+                    // A larger touch target than the line it draws: 3 dp is far
+                    // below the minimum anyone can reliably hit on a watch.
+                    .size(width = 56.dp, height = 20.dp)
                     .clickable { showQueue = true }
-            )
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { _, dragAmount ->
+                            // Negative is upward. A handle that only responds to
+                            // taps invites the drag it looks like it affords.
+                            if (dragAmount < -SWIPE_THRESHOLD_PX) showQueue = true
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(26.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        )
+                )
+            }
         }
 
         // The queue rises from the handle rather than replacing the screen
@@ -424,6 +443,8 @@ private fun PlayButtonWithProgress(
         }
     }
 }
+
+private const val SWIPE_THRESHOLD_PX = 4f
 
 internal fun formatDuration(millis: Long): String {
     if (millis <= 0) return "0:00"

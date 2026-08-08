@@ -133,4 +133,14 @@ data class ConnectDevice(
      * link in the chain.
      */
     val sameAccountHint: Boolean = true,
+    /**
+     * What the device is, for the picker's icon.
+     *
+     * A watch reaches us over the Wear Data Layer rather than the LAN, so it
+     * never appears through NSD — but it is a playback device like any other and
+     * Spotify lists it as one, so it is merged into the same list.
+     */
+    val kind: DeviceKind = DeviceKind.PHONE,
 )
+
+enum class DeviceKind { PHONE, TABLET, WATCH }

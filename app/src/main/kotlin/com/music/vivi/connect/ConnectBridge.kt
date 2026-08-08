@@ -24,6 +24,7 @@ import com.music.vivi.utils.dataStore
 import com.music.vivi.utils.getAsync
 import com.music.vivi.wear.WearBridge
 import com.music.vivi.wear.toMediaItem
+import com.music.vivi.wearsync.LikeCommand
 import com.music.vivi.wearsync.NowPlayingState
 import com.music.vivi.wearsync.PlayTracksCommand
 import com.music.vivi.wearsync.RepeatCommand
@@ -37,6 +38,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -88,7 +92,20 @@ object ConnectBridge {
      */
     val remoteOwnsPlayback: StateFlow<Boolean> = _remoteOwnsPlayback.asStateFlow()
 
-    fun devices() = manager?.devices
+    /**
+     * Every device the user can send audio to: LAN peers plus any paired watch.
+     *
+     * The two arrive over completely different transports — NSD for phones and
+     * tablets, the Wear Data Layer for a watch — but that is an implementation
+     * detail the picker should not expose.
+     */
+    private val peerDevices = MutableStateFlow<List<ConnectDevice>>(emptyList())
+
+    val allDevices: StateFlow<List<ConnectDevice>> =
+        combine(peerDevices, WearBridge.watches) { peers, watches -> peers + watches }
+            .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    fun devices(): StateFlow<List<ConnectDevice>> = allDevices
 
     fun isRunning() = manager?.running?.value == true
 
@@ -106,6 +123,7 @@ object ConnectBridge {
     fun start(context: Context) {
         if (manager != null) return
         val app = context.applicationContext
+        appContext = app
         val instance = ConnectManager(app)
 
         instance.snapshotProvider = { WearBridge.snapshot() }
@@ -142,6 +160,10 @@ object ConnectBridge {
             }
         }
 
+        // Feed the picker from the manager once it exists, rather than binding
+        // to a null one at class-init time.
+        scope.launch { instance.devices.collect { peerDevices.value = it } }
+        WearBridge.startWatchDiscovery()
         restoreRelay(app)
     }
 
@@ -425,6 +447,14 @@ object ConnectBridge {
             SyncPaths.CMD_PLAY_TRACKS -> SyncCodec.decodeOrNull<PlayTracksCommand>(payload)
                 ?.let { playTracks(it) }
 
+            // Spotify keeps likes consistent because every device reads one
+            // account library from its servers. Vivi's equivalent server is the
+            // YouTube account, and the device that acted already wrote there —
+            // so this side only has to bring its own local library into line
+            // rather than issue a second, racing write.
+            SyncPaths.CMD_TOGGLE_LIKE -> SyncCodec.decodeOrNull<LikeCommand>(payload)
+                ?.let { applyLikeLocally(it) }
+
             // A peer took over. Stop here so two devices in the same room are
             // not playing the same song a half-second apart.
             SyncPaths.NOTIFY_WATCH_PLAYING -> onPlayer { it.pause() }
@@ -432,6 +462,46 @@ object ConnectBridge {
             else -> Timber.d("Ignoring unknown Connect command %s", path)
         }
     }
+
+    /**
+     * Mirrors a peer's like into this device's Room library.
+     *
+     * Uses SongEntity.copy rather than toggleLike(), because toggleLike() also
+     * fires its own YouTube call — the peer already made that write, and a
+     * second one would race it and could land as an un-like.
+     */
+    private fun applyLikeLocally(command: LikeCommand) {
+        val app = appContextOrNull() ?: return
+        scope.launch {
+            runCatching {
+                val database = dagger.hilt.android.EntryPointAccessors
+                    .fromApplication(app, ConnectEntryPoint::class.java)
+                    .database()
+                val song = database.song(command.trackId).first() ?: return@runCatching
+                if (song.song.liked == command.liked) return@runCatching
+                database.query {
+                    update(
+                        song.song.copy(
+                            liked = command.liked,
+                            likedDate = if (command.liked) java.time.LocalDateTime.now() else null,
+                        )
+                    )
+                }
+                Timber.i("Mirrored a peer's like for %s", command.trackId)
+            }.onFailure { Timber.w(it, "Could not mirror a like for %s", command.trackId) }
+        }
+    }
+
+    @dagger.hilt.EntryPoint
+    @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+    interface ConnectEntryPoint {
+        fun database(): com.music.vivi.db.MusicDatabase
+    }
+
+    @Volatile
+    private var appContext: Context? = null
+
+    private fun appContextOrNull(): Context? = appContext
 
     private fun playTracks(command: PlayTracksCommand) {
         if (command.tracks.isEmpty()) return

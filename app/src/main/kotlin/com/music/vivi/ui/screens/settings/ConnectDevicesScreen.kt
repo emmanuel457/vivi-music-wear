@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Tablet
+import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -70,8 +71,7 @@ fun ConnectDevicesScreen(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
 ) {
-    val devices by (ConnectBridge.devices()?.collectAsState()
-        ?: androidx.compose.runtime.mutableStateOf(emptyList<ConnectDevice>()))
+    val devices by ConnectBridge.devices().collectAsState()
     val running by ConnectBridge.runningState().collectAsState()
     val identityMissing by ConnectBridge.identityMissing.collectAsState()
     val status by ConnectBridge.status().collectAsState()
@@ -200,11 +200,11 @@ fun ConnectDevicesScreen(
                     },
                     leadingContent = {
                         Icon(
-                            imageVector = if (device.isSelf) {
-                                Icons.Rounded.PhoneAndroid
-                            } else {
-                                Icons.Rounded.Tablet
-                            },
+                            imageVector = when {
+                                device.kind == com.music.vivi.connect.DeviceKind.WATCH -> Icons.Rounded.Watch
+                                device.isSelf -> Icons.Rounded.PhoneAndroid
+                                else -> Icons.Rounded.Tablet
+                                },
                             contentDescription = null,
                             tint = if (device.isPlaying) {
                                 MaterialTheme.colorScheme.primary
