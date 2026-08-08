@@ -318,6 +318,31 @@ object ConnectBridge {
         manager = null
     }
 
+    private val _remoteQueue = MutableStateFlow(com.music.vivi.wearsync.QueueSnapshot.EMPTY)
+
+    /** The owning device's queue, so a remote can show and jump within it. */
+    val remoteQueue: StateFlow<com.music.vivi.wearsync.QueueSnapshot> = _remoteQueue.asStateFlow()
+
+    /** Broadcasts our queue when it changes. Called from WearBridge. */
+    fun onQueueChanged(snapshot: com.music.vivi.wearsync.QueueSnapshot) {
+        manager?.sendToActivePeer(
+            SyncPaths.STATE_QUEUE,
+            SyncCodec.encode(snapshot),
+        )
+        relay.sendFrame(relayFrame(SyncPaths.STATE_QUEUE, SyncCodec.encode(snapshot)))
+    }
+
+    /**
+     * The queue to hand over when transferring playback.
+     *
+     * Whichever device owns the audio has the real list; a remote has only the
+     * copy it was sent. Sending just the current track — which is what transfer
+     * did before — moved the song but not the context, so the target played one
+     * track and stopped.
+     */
+    fun queueForTransfer(): com.music.vivi.wearsync.QueueSnapshot =
+        if (ownsPlayback()) WearBridge.queueSnapshot() else _remoteQueue.value
+
     /** Called from MusicService's event hook, alongside the watch publish. */
     fun onPlaybackStateChanged(rawState: NowPlayingState) {
         val state = stampOwnership(rawState)
@@ -455,6 +480,10 @@ object ConnectBridge {
             SyncPaths.CMD_TOGGLE_LIKE -> SyncCodec.decodeOrNull<LikeCommand>(payload)
                 ?.let { applyLikeLocally(it) }
 
+            SyncPaths.STATE_QUEUE ->
+                SyncCodec.decodeOrNull<com.music.vivi.wearsync.QueueSnapshot>(payload)
+                    ?.let { _remoteQueue.value = it }
+
             // A peer took over. Stop here so two devices in the same room are
             // not playing the same song a half-second apart.
             SyncPaths.NOTIFY_WATCH_PLAYING -> onPlayer { it.pause() }
@@ -509,14 +538,23 @@ object ConnectBridge {
             Timber.w("Connect asked us to play with no MusicService running")
             return
         }
+        // Receiving a queue means we are now the active device.
+        claimOwnership()
         scope.launch(Dispatchers.Main) {
             service.playQueue(
                 ListQueue(
                     title = command.queueTitle,
                     items = command.tracks.map { it.toMediaItem() },
                     startIndex = command.startIndex.coerceIn(0, command.tracks.lastIndex),
+                    // Resume where the other device was, rather than restarting
+                    // the track — a transfer that rewinds is not a transfer.
+                    position = command.positionMs,
                 )
             )
+            runCatching {
+                service.player.shuffleModeEnabled = command.shuffle
+                service.player.repeatMode = command.repeatMode
+            }
         }
     }
 

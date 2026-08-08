@@ -349,15 +349,30 @@ private fun RelaySection() {
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 private fun transferTo() {
-    val state = WearBridge.snapshot()
-    val track = state.track ?: return
+    val queue = ConnectBridge.queueForTransfer()
+    // Fall back to the single current track only when no queue is known, which
+    // is the case for a device that has just linked up.
+    val local = WearBridge.snapshot()
+    val remote = ConnectBridge.remoteState()
+    val playing = if (ConnectBridge.ownsPlayback()) local else remote
+
+    val tracks = queue.tracks.ifEmpty { listOfNotNull(playing.track) }
+    if (tracks.isEmpty()) return
+
+    val index = if (queue.tracks.isNotEmpty()) queue.currentIndex else 0
+
     ConnectBridge.sendCommand(
         SyncPaths.CMD_PLAY_TRACKS,
         SyncCodec.encode(
             PlayTracksCommand(
-                tracks = listOf(track),
-                startIndex = 0,
-                queueTitle = state.queueTitle,
+                tracks = tracks,
+                startIndex = index.coerceIn(0, tracks.lastIndex),
+                queueTitle = queue.queueTitle ?: playing.queueTitle,
+                // The whole point of a transfer: the music continues rather
+                // than restarting.
+                positionMs = playing.positionMs,
+                shuffle = playing.shuffle,
+                repeatMode = playing.repeatMode,
             )
         ),
     )

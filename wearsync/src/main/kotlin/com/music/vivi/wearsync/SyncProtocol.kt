@@ -35,6 +35,12 @@ object SyncPaths {
     const val STATE_NOW_PLAYING = "/vivi/state/np"
     const val STATE_AUTH = "/vivi/state/auth"
 
+    /**
+     * The playing device's queue. Published only when the queue changes, not
+     * on every position tick, so the list never rides along with routine state.
+     */
+    const val STATE_QUEUE = "/vivi/state/queue"
+
     // ── Phone -> watch bulk (ChannelClient) ──────────────────────────────────
     const val CHANNEL_LIBRARY = "/vivi/channel/library"
 

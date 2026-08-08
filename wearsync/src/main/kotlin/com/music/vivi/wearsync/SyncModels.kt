@@ -141,8 +141,38 @@ data class PlayTracksCommand(
     val tracks: List<WearTrack>,
     val startIndex: Int = 0,
     val queueTitle: String? = null,
+    /**
+     * Where to resume. A transfer that restarts the track from zero is not a
+     * transfer — Spotify picks up mid-song on the new device.
+     */
+    val positionMs: Long = 0L,
+    /** Carried across so the target keeps the shuffle/repeat the user set. */
+    val shuffle: Boolean = false,
+    val repeatMode: Int = SyncRepeatMode.OFF,
 ) {
     companion object {
+        const val MAX_TRACKS = 100
+    }
+}
+
+/**
+ * The playing device's full queue.
+ *
+ * Broadcast separately from [NowPlayingState] and only when the queue actually
+ * changes. Folding it into the state would push the whole list on every
+ * position tick and play/pause, which on the Data Layer's 100 KB ceiling and a
+ * Bluetooth link is exactly the wrong trade.
+ */
+@Serializable
+data class QueueSnapshot(
+    val tracks: List<WearTrack> = emptyList(),
+    val queueTitle: String? = null,
+    val currentIndex: Int = 0,
+    /** Identifies the queue so a peer can tell a real change from a re-send. */
+    val revision: Long = 0L,
+) {
+    companion object {
+        val EMPTY = QueueSnapshot()
         const val MAX_TRACKS = 100
     }
 }

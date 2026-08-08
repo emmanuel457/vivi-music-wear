@@ -15,6 +15,7 @@ import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import com.music.vivi.wearsync.SyncCapabilities
 import com.music.vivi.extensions.currentMetadata
+import com.music.vivi.extensions.metadata
 import com.music.vivi.models.MediaMetadata
 import com.music.vivi.playback.MusicService
 import com.music.vivi.wearsync.NowPlayingState
@@ -173,6 +174,7 @@ object WearBridge {
 
         lastState = state
         putDataItem(SyncPaths.STATE_NOW_PLAYING, SyncCodec.encode(state))
+        publishQueueIfChanged(service)
         // Same snapshot, second transport: watches get it over the Data Layer,
         // phones and tablets over Vivi Connect.
         com.music.vivi.connect.ConnectBridge.onPlaybackStateChanged(state)
@@ -181,6 +183,51 @@ object WearBridge {
     /** Last state we successfully captured, for callers that aren't on main. */
     @Volatile
     private var lastState: NowPlayingState = NowPlayingState.IDLE
+
+    @Volatile
+    private var lastQueue: com.music.vivi.wearsync.QueueSnapshot =
+        com.music.vivi.wearsync.QueueSnapshot.EMPTY
+
+    /** The playing device's queue, for transfers and remote queue screens. */
+    fun queueSnapshot(): com.music.vivi.wearsync.QueueSnapshot = lastQueue
+
+    /**
+     * Captures the queue and publishes it when it has actually changed.
+     *
+     * Kept out of [NowPlayingState] on purpose: that is republished on every
+     * position tick and play/pause, and pushing a hundred tracks through the
+     * Data Layer at that rate would saturate a Bluetooth link for data that
+     * changes once a song.
+     */
+    private suspend fun publishQueueIfChanged(service: MusicService) {
+        val snapshot = withContext(Dispatchers.Main) {
+            runCatching {
+                val player = service.player
+                val tracks = (0 until player.mediaItemCount)
+                    .take(com.music.vivi.wearsync.QueueSnapshot.MAX_TRACKS)
+                    .mapNotNull { index ->
+                        player.getMediaItemAt(index).metadata?.toWearTrack()
+                    }
+                com.music.vivi.wearsync.QueueSnapshot(
+                    tracks = tracks,
+                    queueTitle = service.queueTitle,
+                    currentIndex = player.currentMediaItemIndex,
+                    // Identity of the queue itself, so a peer can tell a genuine
+                    // change from the same list being re-sent.
+                    revision = tracks.fold(7L) { acc, t -> acc * 31 + t.id.hashCode() },
+                )
+            }.getOrNull()
+        } ?: return
+
+        if (snapshot.revision == lastQueue.revision &&
+            snapshot.currentIndex == lastQueue.currentIndex
+        ) {
+            return
+        }
+        lastQueue = snapshot
+        putDataItem(SyncPaths.STATE_QUEUE, SyncCodec.encode(snapshot))
+        com.music.vivi.connect.ConnectBridge.onQueueChanged(snapshot)
+    }
 
     /**
      * Current playback state, or idle when nothing is running. Used by Connect
