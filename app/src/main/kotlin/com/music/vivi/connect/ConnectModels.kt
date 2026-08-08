@@ -30,6 +30,9 @@ object ConnectProtocol {
     const val ATTR_DEVICE_NAME = "dn"
     const val ATTR_FINGERPRINT = "fp"
 
+    /** Device type, so a peer shows the right icon instead of guessing. */
+    const val ATTR_KIND = "dk"
+
     /** Sent by a connecting peer before anything else. */
     const val PATH_HELLO = "/vivi/connect/hello"
 
@@ -143,4 +146,31 @@ data class ConnectDevice(
     val kind: DeviceKind = DeviceKind.PHONE,
 )
 
-enum class DeviceKind { PHONE, TABLET, WATCH }
+enum class DeviceKind { PHONE, TABLET, FOLDABLE, WATCH }
+
+/**
+ * Works out what this device is, so the picker can show the right icon.
+ *
+ * Icons were previously chosen by whether the row was "this device", which is
+ * why a Tab S8 showed a phone glyph and a Z Fold6 showed a tablet one — the
+ * list was labelling position, not hardware.
+ */
+object DeviceKinds {
+    fun detect(context: android.content.Context): DeviceKind {
+        // Foldables report a phone-sized screen when closed and a tablet-sized
+        // one when open, so screen width alone mislabels them on every fold.
+        val model = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".lowercase()
+        if (model.contains("fold") || model.contains("flip")) return DeviceKind.FOLDABLE
+
+        val hinge = runCatching {
+            context.packageManager.hasSystemFeature("android.hardware.sensor.hinge_angle")
+        }.getOrDefault(false)
+        if (hinge) return DeviceKind.FOLDABLE
+
+        val smallestWidthDp = context.resources.configuration.smallestScreenWidthDp
+        return if (smallestWidthDp >= TABLET_MIN_WIDTH_DP) DeviceKind.TABLET else DeviceKind.PHONE
+    }
+
+    /** Android's own long-standing tablet threshold. */
+    private const val TABLET_MIN_WIDTH_DP = 600
+}

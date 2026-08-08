@@ -40,9 +40,26 @@ class ConnectRemotePlayer(
     @Volatile
     private var remote: NowPlayingState = NowPlayingState.IDLE
 
+    @Volatile
+    private var remoteQueue: com.music.vivi.wearsync.QueueSnapshot =
+        com.music.vivi.wearsync.QueueSnapshot.EMPTY
+
     /** Pushes a fresh snapshot from the peer and republishes to listeners. */
     fun update(state: NowPlayingState) {
         remote = state
+        invalidateState()
+    }
+
+    /**
+     * Publishes the peer's whole queue as this player's playlist.
+     *
+     * Exposing only the current track made the Queue screen render an empty
+     * list, and skip availability had to be faked from flags. A real playlist
+     * means every existing screen reads the remote queue through the ordinary
+     * Player API with no special cases.
+     */
+    fun updateQueue(queue: com.music.vivi.wearsync.QueueSnapshot) {
+        remoteQueue = queue
         invalidateState()
     }
 
@@ -84,29 +101,33 @@ class ConnectRemotePlayer(
             .setRepeatMode(snapshot.repeatMode)
 
         if (track != null) {
+            // Prefer the peer's real queue; fall back to the single current
+            // track only until the first queue snapshot arrives.
+            val queueTracks = remoteQueue.tracks.ifEmpty { listOf(track) }
+            val currentIndex = if (remoteQueue.tracks.isNotEmpty()) {
+                remoteQueue.currentIndex.coerceIn(0, queueTracks.lastIndex)
+            } else {
+                0
+            }
+
             builder.setPlaylist(
-                ImmutableList.of(
-                    MediaItemData.Builder(track.id)
-                        .setMediaItem(
-                            MediaItem.Builder()
-                                .setMediaId(track.id)
-                                .setMediaMetadata(
-                                    MediaMetadata.Builder()
-                                        .setTitle(track.title)
-                                        .setArtist(track.artist)
-                                        .setAlbumTitle(track.album)
-                                        .setArtworkUri(track.thumbnailUrl?.toUri())
-                                        .build()
-                                )
-                                .build()
-                        )
-                        .setDurationUs(
-                            if (snapshot.durationMs > 0) snapshot.durationMs * 1000 else C_TIME_UNSET
-                        )
-                        .build()
+                ImmutableList.copyOf(
+                    queueTracks.mapIndexed { index, item ->
+                        MediaItemData.Builder("${index}:${item.id}")
+                            .setMediaItem(mediaItemFor(item))
+                            .setDurationUs(
+                                when {
+                                    index == currentIndex && snapshot.durationMs > 0 ->
+                                        snapshot.durationMs * 1000
+                                    item.durationSec > 0 -> item.durationSec * 1_000_000L
+                                    else -> C_TIME_UNSET
+                                }
+                            )
+                            .build()
+                    }
                 )
             )
-            builder.setCurrentMediaItemIndex(0)
+            builder.setCurrentMediaItemIndex(currentIndex)
             // Extrapolating rather than a fixed value: the peer only publishes on
             // state changes, so a static position would freeze the progress bar
             // between songs.
@@ -120,6 +141,40 @@ class ConnectRemotePlayer(
 
         return builder.build()
     }
+
+    /**
+     * Builds a MediaItem carrying the app's own MediaMetadata as its tag.
+     *
+     * The tag is not decoration: the queue screen does
+     * `mediaItem.metadata!!.duration`, so an untagged item is an instant crash —
+     * which is exactly the black screen that appeared when opening the queue
+     * while a peer held playback.
+     */
+    private fun mediaItemFor(track: com.music.vivi.wearsync.WearTrack): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(track.id)
+            .setTag(
+                com.music.vivi.models.MediaMetadata(
+                    id = track.id,
+                    title = track.title,
+                    artists = track.artist.split(", ")
+                        .filter { it.isNotBlank() }
+                        .map { com.music.vivi.models.MediaMetadata.Artist(id = null, name = it) },
+                    duration = track.durationSec,
+                    thumbnailUrl = track.thumbnailUrl,
+                    explicit = track.explicit,
+                    liked = track.liked,
+                )
+            )
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album)
+                    .setArtworkUri(track.thumbnailUrl?.toUri())
+                    .build()
+            )
+            .build()
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
         ConnectBridge.sendCommand(

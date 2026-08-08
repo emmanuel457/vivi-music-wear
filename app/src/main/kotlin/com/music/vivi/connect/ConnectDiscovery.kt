@@ -26,6 +26,7 @@ class ConnectDiscovery(
     context: Context,
     private val selfId: String,
     private val selfName: String,
+    private val selfKind: DeviceKind,
 ) {
 
     private val nsdManager = context.getSystemService<NsdManager>()
@@ -60,6 +61,8 @@ class ConnectDiscovery(
             port = localPort
             setAttribute(ConnectProtocol.ATTR_DEVICE_ID, selfId)
             setAttribute(ConnectProtocol.ATTR_DEVICE_NAME, selfName)
+            setAttribute(ConnectProtocol.ATTR_KIND, selfKind.name)
+
             setAttribute(
                 ConnectProtocol.ATTR_FINGERPRINT,
                 ConnectProtocol.encodeFingerprints(fingerprints),
@@ -192,6 +195,9 @@ class ConnectDiscovery(
                     host = host,
                     port = resolved.port,
                     sameAccountHint = sameAccountHint,
+                    kind = runCatching {
+                        DeviceKind.valueOf(attr(ConnectProtocol.ATTR_KIND) ?: "PHONE")
+                    }.getOrDefault(DeviceKind.PHONE),
                 ))
                 Timber.i("Connect found %s at %s:%d", peerId.take(6), host, resolved.port)
             }

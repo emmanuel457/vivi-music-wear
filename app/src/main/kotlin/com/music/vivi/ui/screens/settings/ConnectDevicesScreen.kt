@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Tablet
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.TabletAndroid
 import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -200,10 +202,15 @@ fun ConnectDevicesScreen(
                     },
                     leadingContent = {
                         Icon(
-                            imageVector = when {
-                                device.kind == com.music.vivi.connect.DeviceKind.WATCH -> Icons.Rounded.Watch
-                                device.isSelf -> Icons.Rounded.PhoneAndroid
-                                else -> Icons.Rounded.Tablet
+                            // Chosen from what the device actually is, not from whether the row
+
+                            // happens to be this device.
+
+                            imageVector = when (device.kind) {
+                                com.music.vivi.connect.DeviceKind.WATCH -> Icons.Rounded.Watch
+                                com.music.vivi.connect.DeviceKind.TABLET -> Icons.Rounded.TabletAndroid
+                                com.music.vivi.connect.DeviceKind.FOLDABLE -> Icons.Rounded.Smartphone
+                                else -> Icons.Rounded.PhoneAndroid
                                 },
                             contentDescription = null,
                             tint = if (device.isPlaying) {

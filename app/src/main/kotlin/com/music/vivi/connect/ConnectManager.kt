@@ -52,6 +52,9 @@ class ConnectManager(
     /** Supplies the current playback snapshot when a peer connects or state moves. */
     var snapshotProvider: (() -> NowPlayingState)? = null
 
+    /** Supplies the current queue, so a newly linked peer is briefed fully. */
+    var queueProvider: (() -> com.music.vivi.wearsync.QueueSnapshot)? = null
+
     private val selfId: String by lazy {
         @Suppress("HardwareIds")
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
@@ -66,7 +69,9 @@ class ConnectManager(
     /** Stable identity for this device, used as the Connect ownership token. */
     fun selfId(): String = selfId
 
-    private val discovery by lazy { ConnectDiscovery(context, selfId, selfName) }
+    private val selfKind: DeviceKind by lazy { DeviceKinds.detect(context) }
+
+    private val discovery by lazy { ConnectDiscovery(context, selfId, selfName, selfKind) }
 
     private var serverSocket: ServerSocket? = null
 
@@ -89,6 +94,8 @@ class ConnectManager(
                 host = "127.0.0.1",
                 port = 0,
                 isSelf = true,
+
+                kind = selfKind,
                 isPlaying = snapshotProvider?.invoke()?.phonePlaybackActive == true,
                 connected = true,
             )
@@ -239,8 +246,19 @@ class ConnectManager(
         discovery.markConnected(peerId, true)
         Timber.i("Connect linked to %s", peerId.take(6))
 
-        // A peer that just arrived has no idea what is playing here.
+        // A peer that just arrived has no idea what is playing here, and no idea
+        // what the queue is. Briefing it with state alone left its queue screen
+        // empty until the next time the queue happened to change — which for a
+        // device opened mid-album is never.
         snapshotProvider?.invoke()?.let { broadcastState(it) }
+        queueProvider?.invoke()?.let { queue ->
+            broadcast(
+                ConnectFrame(
+                    path = SyncPaths.STATE_QUEUE,
+                    data = encode(SyncCodec.encode(queue)),
+                )
+            )
+        }
 
         scope.launch {
             runCatching {

@@ -127,6 +127,7 @@ object ConnectBridge {
         val instance = ConnectManager(app)
 
         instance.snapshotProvider = { WearBridge.snapshot() }
+        instance.queueProvider = { WearBridge.queueSnapshot() }
         instance.onCommand = { path, payload -> execute(path, payload) }
 
         manager = instance
@@ -349,15 +350,22 @@ object ConnectBridge {
         manager?.broadcastState(state)
         relayBroadcast(state)
 
-        // Starting playback here claims the session, bumping the epoch so every
-        // peer's stale claim loses deterministically.
-        if (state.isPlaying && !wasPlayingLocally) {
+        // Claim whenever we are playing and are not already the recorded owner —
+        // not only on a false->true transition. A device that was already
+        // playing when a peer linked up never transitioned, so it never
+        // claimed, activeDeviceId stayed null on every peer, and their controls
+        // silently kept driving their own idle player.
+        if (rawState.isPlaying && activeDeviceId != selfDeviceId) {
             claimOwnership()
             manager?.sendToActivePeer(SyncPaths.NOTIFY_WATCH_PLAYING)
             relay.sendFrame(relayFrame(SyncPaths.NOTIFY_WATCH_PLAYING, ByteArray(0)))
-            Timber.i("Claimed playback (epoch %d)", epoch.get())
+            Timber.i("Claimed playback as %s (epoch %d)", selfDeviceId.take(6), epoch.get())
+            // Re-stamp: the claim above changed the very fields we just copied.
+            val claimed = stampOwnership(rawState)
+            manager?.broadcastState(claimed)
+            relayBroadcast(claimed)
         }
-        wasPlayingLocally = state.isPlaying
+        wasPlayingLocally = rawState.isPlaying
         recomputeOwnership()
     }
 
@@ -482,7 +490,10 @@ object ConnectBridge {
 
             SyncPaths.STATE_QUEUE ->
                 SyncCodec.decodeOrNull<com.music.vivi.wearsync.QueueSnapshot>(payload)
-                    ?.let { _remoteQueue.value = it }
+                    ?.let {
+                        _remoteQueue.value = it
+                        remotePlayer.updateQueue(it)
+                    }
 
             // A peer took over. Stop here so two devices in the same room are
             // not playing the same song a half-second apart.
