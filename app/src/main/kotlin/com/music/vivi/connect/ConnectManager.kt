@@ -239,11 +239,20 @@ class ConnectManager(
             val known = discovery.peers.value
             for ((peerId, device) in known) {
                 if (links.containsKey(peerId)) continue
-                // Both sides dial. Restricting this to the lower id made that
-                // one device a single point of failure: when its dial stalled,
-                // nothing else ever tried and the pair sat at links=0 forever.
-                // A duplicate socket is harmless now — adopt() supersedes
-                // safely and the loser tears down without touching the map.
+
+                // Only the lower id dials. Letting both dial produced two
+                // simultaneous connections for one peer, and while adopt()
+                // supersedes safely *within* a device, the two devices do not
+                // agree on which of the two survives: each keeps whichever it
+                // adopted last and closes the other, so both die and the pair
+                // re-dials seconds later. That is the connected/available
+                // flapping.
+                //
+                // The reason this rule was removed — one stalled dial meant
+                // nothing ever retried — is now handled properly by the 6 s
+                // handshake deadline and this loop's retry, rather than by
+                // having both ends race.
+                if (selfId > peerId) continue
                 scope.launch { dial(device, fingerprints) }
             }
             delay(DIAL_INTERVAL_MS)
@@ -305,7 +314,27 @@ class ConnectManager(
 
     private fun adopt(link: PeerLink) {
         val peerId = link.peerId ?: return
-        links.put(peerId, link)?.close()
+
+        // First link wins. Superseding meant a second connection tore down a
+        // perfectly healthy first one, and since dead links are already removed
+        // by their own read loop, anything still in the map is live and worth
+        // keeping. Deterministic beats last-writer-wins here, because the two
+        // devices decide independently and must reach the same answer.
+        val existing = synchronized(links) {
+            val current = links[peerId]
+            if (current == null) {
+                links[peerId] = link
+                null
+            } else {
+                current
+            }
+        }
+        if (existing != null) {
+            Timber.d("Duplicate link to %s refused; keeping the live one", peerId.take(6))
+            link.close()
+            return
+        }
+
         discovery.markConnected(peerId, true)
         Timber.i("Connect linked to %s", peerId.take(6))
 
