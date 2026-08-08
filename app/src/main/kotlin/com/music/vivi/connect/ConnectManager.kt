@@ -217,8 +217,18 @@ class ConnectManager(
         }
     }
 
+    /** Dial outcomes, so a link that never forms explains itself. */
+    
+    var lastDialError: String? = null
+        private set
+
+    
+    var dialAttempts: Int = 0
+        private set
+
     private fun dial(device: ConnectDevice, fingerprints: Set<String>) {
         runCatching {
+            dialAttempts++
             val socket = Socket().apply {
                 connect(InetSocketAddress(device.host, device.port), CONNECT_TIMEOUT_MS)
             }
@@ -243,7 +253,13 @@ class ConnectManager(
             }
             link.peerId = device.id
             adopt(link)
-        }.onFailure { Timber.d(it, "Could not dial Connect peer %s", device.name) }
+        }.onFailure {
+
+            lastDialError = "${device.host}:${device.port} ${it::class.simpleName}"
+
+            Timber.w(it, "Could not dial Connect peer %s at %s:%d", device.name, device.host, device.port)
+
+        }
     }
 
     private fun adopt(link: PeerLink) {
@@ -273,11 +289,28 @@ class ConnectManager(
                     dispatch(frame)
                 }
             }.onFailure { Timber.w(it, "Connect link to %s failed", peerId.take(6)) }
-            links.remove(peerId)
-            discovery.markConnected(peerId, false)
-            onPeerLost?.invoke(peerId)
+
+            // Only tear down if this link is still the live one. Replacing a
+            // link closes the old socket, whose read loop then wakes here — and
+            // an unconditional remove deleted the *replacement*, so a re-dial
+            // dropped the very connection it had just made and links flapped
+            // back to zero while both devices still listed each other.
+            val stillOurs = synchronized(links) {
+                if (links[peerId] === link) {
+                    links.remove(peerId)
+                    true
+                } else {
+                    false
+                }
+            }
             link.close()
-            Timber.i("Connect dropped %s", peerId.take(6))
+            if (stillOurs) {
+                discovery.markConnected(peerId, false)
+                onPeerLost?.invoke(peerId)
+                Timber.i("Connect dropped %s", peerId.take(6))
+            } else {
+                Timber.d("Superseded link to %s closed", peerId.take(6))
+            }
         }
     }
 

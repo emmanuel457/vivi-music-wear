@@ -149,6 +149,10 @@ object ConnectBridge {
         )
         append(" epoch=").append(epoch.get())
         append(" links=").append(manager?.linkCount() ?: 0)
+        manager?.let { m ->
+            append(" dials=").append(m.dialAttempts)
+            m.lastDialError?.let { append(" err=").append(it) }
+        }
         append(if (_remoteOwnsPlayback.value) " remote-session" else " local-session")
         _remoteState.value.track?.let { append(" peer=\"").append(it.title.take(18)).append('"') }
     }
