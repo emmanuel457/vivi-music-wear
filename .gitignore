@@ -106,3 +106,14 @@ app/src/main/java/com/vivimusic/music/listentogether/proto/*
 # FFTW third-party library build artifacts
 app/src/main/cpp/vibrafp/third_party/fftw-android/
 app/src/main/cpp/vibrafp/third_party/.build-fftw/
+# ── Wear OS fork ─────────────────────────────────────────────────────────────
+# The shared signing keystore is deliberately NOT committed. Phone and watch
+# APKs must share a signing certificate for the Wearable Data Layer to route
+# between them, so anyone building this repo generates their own — see
+# docs/WEAR.md. Committing it would let anyone sign an APK that pairs with a
+# user's watch.
+keystore/
+*.keystore
+*.jks
+local.properties
+.toolchain/

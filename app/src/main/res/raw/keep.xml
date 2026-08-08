@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Google Play Services reads android_wear_capabilities by name at runtime, so
+  nothing in this app references it and the resource shrinker strips it from
+  release builds. Without it the paired watch can never discover this phone,
+  and there is no error to go on — the Data Layer just delivers nothing.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@array/android_wear_capabilities"
+    tools:shrinkMode="safe" />

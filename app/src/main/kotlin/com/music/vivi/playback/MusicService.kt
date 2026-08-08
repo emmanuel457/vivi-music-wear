@@ -357,6 +357,10 @@ class MusicService :
 
     private lateinit var mediaSession: MediaLibrarySession
 
+    /** Backs the session while another device holds the audio. Shared with
+     * PlayerConnection so the notification and the in-app screen never diverge. */
+    private val connectRemotePlayer get() = com.music.vivi.connect.ConnectBridge.remotePlayer
+
     // Tracks if player has been properly initilized
     private val playerInitialized = MutableStateFlow(false)
     val isPlayerReady: kotlinx.coroutines.flow.StateFlow<Boolean> = playerInitialized.asStateFlow()
@@ -465,6 +469,47 @@ class MusicService :
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+
+        // Wear OS companion: let the paired watch see and drive this player.
+        com.music.vivi.wear.WearBridge.init(applicationContext)
+        com.music.vivi.wear.WearBridge.attach(this)
+
+        // Vivi Connect is started from App.onCreate, not here: a device used
+        // only as a remote never starts this service.
+
+        // When a peer holds the audio, hand this session a Player backed by that
+        // peer. Every existing surface -- miniplayer, Now Playing, notification,
+        // lockscreen -- reads from the session, so they all begin showing and
+        // driving the other device without any UI changes. This is what makes
+        // Connect behave like Spotify instead of like a separate remote screen.
+        scope.launch {
+            com.music.vivi.connect.ConnectBridge.remoteOwnsPlayback.collect { remoteOwns ->
+                runCatching {
+                    if (remoteOwns) {
+                        // A non-active device must hold no queue of its own. Spotify
+                        // enforces this; without it, pressing play here started this
+                        // device's stale track while the screen showed the peer's.
+                        if (player.mediaItemCount > 0) {
+                            player.pause()
+                            player.clearMediaItems()
+                        }
+                        connectRemotePlayer.update(
+                            com.music.vivi.connect.ConnectBridge.remoteState()
+                        )
+                        if (mediaSession.player !== connectRemotePlayer) {
+                            mediaSession.player = connectRemotePlayer
+                        }
+                    } else if (mediaSession.player !== player) {
+                        mediaSession.player = player
+                    }
+                }.onFailure { Timber.tag(TAG).w(it, "Could not swap the session player") }
+            }
+        }
+        scope.launch {
+            com.music.vivi.connect.ConnectBridge.remoteStateFlow.collect { state ->
+                connectRemotePlayer.update(state)
+            }
+        }
 
         // Player rediness reset to false
         playerInitialized.value = false
@@ -2213,6 +2258,14 @@ class MusicService :
             scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
         }
 
+        // Wear OS companion. Self-throttling, and a no-op when no watch is
+        // paired, so this stays off the hot path for phone-only users.
+        com.music.vivi.wear.WearBridge.onPlayerEvents(
+            force = events.containsAny(
+                Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_IS_PLAYING_CHANGED,
+            )
+        )
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -3173,6 +3226,10 @@ class MusicService :
 
     override fun onDestroy() {
         isRunning = false
+
+        // Clears the watch's now-playing card; without this it keeps showing a
+        // track that no longer exists and its buttons do nothing.
+        com.music.vivi.wear.WearBridge.detach()
 
         try {
             unregisterReceiver(screenStateReceiver)

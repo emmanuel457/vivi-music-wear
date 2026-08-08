@@ -67,10 +67,27 @@ class PlayerConnection(
     }
 
     /**
-     * Public accessor for player. Throws if player not ready.
-     * Callers should check [isPlayerInitialized] before calling, or handle exceptions.
+     * The player the UI should drive.
+     *
+     * Returns the Connect remote player whenever another device holds the
+     * audio, so the in-app controls act on that device instead of silently
+     * driving an idle local player. Swapping only the MediaSession fixed the
+     * notification but not this screen, because the app binds here and never
+     * goes through the session.
+     *
+     * Typed [Player] rather than ExoPlayer: nothing outside MusicService needs
+     * the ExoPlayer-only surface, and [exoPlayer] remains available for the few
+     * places that do.
      */
-    val player: ExoPlayer
+    val player: Player
+        get() = if (com.music.vivi.connect.ConnectBridge.remoteOwnsPlayback.value) {
+            com.music.vivi.connect.ConnectBridge.remotePlayer
+        } else {
+            getPlayerSafe()
+        }
+
+    /** The local ExoPlayer, for callers that genuinely need ExoPlayer APIs. */
+    val exoPlayer: ExoPlayer
         get() = getPlayerSafe()
 
     /** Tracks whether player initialization completed successfully */
@@ -113,6 +130,37 @@ class PlayerConnection(
             }
         }
         
+        // Mirror a peer's playback into the same flows the Now Playing screen
+        // already reads. Without this the notification followed the other device
+        // (it reads the MediaSession) while the in-app screen kept showing this
+        // device's own stale track — the two disagreed on screen.
+        scope.launch {
+            combine(
+                com.music.vivi.connect.ConnectBridge.remoteOwnsPlayback,
+                com.music.vivi.connect.ConnectBridge.remoteStateFlow,
+            ) { remoteOwns, remote -> remoteOwns to remote }
+                .collect { (remoteOwns, remote) ->
+                    if (!remoteOwns) return@collect
+                    val track = remote.track ?: return@collect
+                    mediaMetadata.value = com.music.vivi.models.MediaMetadata(
+                        id = track.id,
+                        title = track.title,
+                        artists = track.artist.split(", ")
+                            .filter { it.isNotBlank() }
+                            .map { com.music.vivi.models.MediaMetadata.Artist(id = null, name = it) },
+                        duration = track.durationSec,
+                        thumbnailUrl = track.thumbnailUrl,
+                        explicit = track.explicit,
+                        liked = track.liked,
+                    )
+                    playbackState.value = Player.STATE_READY
+                    playWhenReady.value = remote.isPlaying
+                    canSkipNext.value = remote.canSkipNext
+                    canSkipPrevious.value = remote.canSkipPrevious
+                    queueTitle.value = remote.queueTitle
+                }
+        }
+
         Timber.tag(TAG).d("PlayerConnection state flows initialized successfully")
     }
     

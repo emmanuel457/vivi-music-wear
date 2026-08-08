@@ -29,6 +29,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -174,18 +175,61 @@ fun MiniPlayer(
     // Create stable progress state - doesn't cause recomposition on position changes
     val progressState = remember { ProgressState(positionState, durationState) }
 
-    if (useNewMiniPlayerDesign) {
-        NewMiniPlayer(
-            progressState = progressState,
-            modifier = modifier
-        )
-    } else {
-        Box(modifier = modifier.fillMaxWidth()) {
-            LegacyMiniPlayer(
+    // Wraps both designs so the Connect strip appears regardless of which the
+    // user has chosen.
+    Column(modifier = modifier.fillMaxWidth()) {
+        ConnectPlayingOnStrip()
+
+        if (useNewMiniPlayerDesign) {
+            NewMiniPlayer(
                 progressState = progressState,
-                modifier = Modifier.align(Alignment.Center)
+                modifier = Modifier.fillMaxWidth()
             )
+        } else {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                LegacyMiniPlayer(
+                    progressState = progressState,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
         }
+    }
+}
+
+/**
+ * Spotify's "Playing on <device>" strip.
+ *
+ * Without it there is nothing on screen explaining why the transport is driving
+ * audio you cannot hear from the device in your hand — the controls simply feel
+ * broken. Tapping it opens the device picker, which is also what Spotify does.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun ConnectPlayingOnStrip() {
+    val activeDevice by com.music.vivi.connect.ConnectBridge.activeDeviceName.collectAsState()
+    val name = activeDevice ?: return
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.primary)
+            .padding(vertical = 4.dp, horizontal = 12.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Cast,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "Playing on $name",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onPrimary,
+            maxLines = 1,
+        )
     }
 }
 

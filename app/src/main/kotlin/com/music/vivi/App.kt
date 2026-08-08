@@ -67,6 +67,18 @@ class App : Application(), SingletonImageLoader.Factory {
         // Start preferences cache immediately
         ViviPrefCache.start(this)
 
+        // WearBridge must be initialised before Connect starts: Connect asks it
+        // to begin watch discovery, and that call silently no-ops without a
+        // context. It was previously only initialised from MusicService, which
+        // is why a paired watch never appeared in the device list.
+        com.music.vivi.wear.WearBridge.init(this)
+
+        // Vivi Connect must advertise even on a device that never plays
+        // anything -- a tablet used purely as a remote would otherwise be
+        // invisible to every other device.
+        com.music.vivi.connect.ConnectBridge.start(this)
+        com.music.vivi.connect.ConnectPresenceService.start(this)
+
         // Install crash handler first
         CrashHandler.install(this)
 

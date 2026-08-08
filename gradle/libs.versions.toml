@@ -44,6 +44,14 @@ coreSplashscreen = "1.2.0"
 haze = "1.7.2"
 rhino = "1.9.1"
 
+# Wear OS
+kotlinxSerialization = "1.11.0"
+playServicesWearable = "20.0.1"
+wear = "1.4.0"
+wearCompose = "1.6.2"
+wearOngoing = "1.1.0"
+wearToolingPreview = "1.0.0"
+
 
 [libraries]
 haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
@@ -137,6 +145,17 @@ lottie-compose = { module = "com.airbnb.android:lottie-compose", version.ref = "
 work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 rhino = { module = "org.mozilla:rhino", version.ref = "rhino" }
+
+# Wear OS
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+play-services-wearable = { module = "com.google.android.gms:play-services-wearable", version.ref = "playServicesWearable" }
+coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutinesGuava" }
+wear = { module = "androidx.wear:wear", version.ref = "wear" }
+wear-ongoing = { module = "androidx.wear:wear-ongoing", version.ref = "wearOngoing" }
+wear-tooling-preview = { module = "androidx.wear:wear-tooling-preview", version.ref = "wearToolingPreview" }
+wear-compose-material3 = { module = "androidx.wear.compose:compose-material3", version.ref = "wearCompose" }
+wear-compose-foundation = { module = "androidx.wear.compose:compose-foundation", version.ref = "wearCompose" }
+wear-compose-navigation = { module = "androidx.wear.compose:compose-navigation", version.ref = "wearCompose" }
 
 
 [plugins]

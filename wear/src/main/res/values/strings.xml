@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vivi Music</string>
+
+    <!-- Navigation -->
+    <string name="home">Home</string>
+    <string name="library">Library</string>
+    <string name="search">Search</string>
+    <string name="settings">Settings</string>
+    <string name="queue">Queue</string>
+    <string name="now_playing">Now playing</string>
+
+    <!-- Library -->
+    <string name="liked_songs">Liked songs</string>
+    <string name="recent">Recently played</string>
+    <string name="downloads">Downloads</string>
+    <string name="playlists">Playlists</string>
+    <string name="quick_picks">Quick picks</string>
+
+    <!-- Playback routing -->
+    <string name="play_on">Play on</string>
+    <string name="this_watch">This watch</string>
+    <string name="phone">Phone</string>
+    <string name="playing_on_phone">Playing on phone</string>
+    <string name="playing_on_watch">Playing on watch</string>
+
+    <!-- States -->
+    <string name="nothing_playing">Nothing playing</string>
+    <string name="no_results">No results</string>
+    <string name="loading">Loading…</string>
+    <string name="offline">No connection</string>
+    <string name="phone_not_connected">Phone not connected</string>
+    <string name="empty_library">Nothing here yet. Sync from your phone.</string>
+
+    <!-- Setup -->
+    <string name="setup_title">Connect to your phone</string>
+    <string name="setup_body">Open Vivi Music on your phone and approve the request to sign in on this watch.</string>
+    <string name="setup_request">Request account</string>
+    <string name="setup_waiting">Waiting for your phone…</string>
+    <string name="setup_skip">Continue signed out</string>
+    <string name="signed_in_as">Signed in as %1$s</string>
+    <string name="signed_in">Signed in</string>
+    <string name="not_signed_in">Not signed in</string>
+
+    <!-- Settings -->
+    <string name="sync_now">Sync now</string>
+    <string name="sync_never">Never synced</string>
+    <string name="last_synced">Last synced %1$s</string>
+    <string name="audio_quality">Audio quality</string>
+    <string name="quality_auto">Auto</string>
+    <string name="quality_high">High</string>
+    <string name="quality_low">Data saver</string>
+    <string name="sign_out">Sign out</string>
+    <string name="about">About</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_play">Play</string>
+    <string name="cd_pause">Pause</string>
+    <string name="cd_next">Next track</string>
+    <string name="cd_previous">Previous track</string>
+    <string name="cd_shuffle">Shuffle</string>
+    <string name="cd_repeat">Repeat</string>
+    <string name="cd_like">Like</string>
+    <string name="cd_output">Output device</string>
+    <string name="cd_download">Download to watch</string>
+    <string name="cd_artwork">Album artwork</string>
+</resources>

@@ -699,7 +699,7 @@ fun Queue(
         val mutableQueueWindows = remember { mutableStateListOf<Timeline.Window>() }
         val queueLength =
             remember(queueWindows) {
-                queueWindows.sumOf { it.mediaItem.metadata!!.duration }
+                queueWindows.sumOf { it.mediaItem.metadata?.duration ?: 0 }
             }
 
         val headerItems = 1
@@ -742,7 +742,7 @@ fun Queue(
                     if (!playerConnection.player.shuffleModeEnabled) {
                         playerConnection.player.moveMediaItem(safeFrom, safeTo)
                     } else {
-                        playerConnection.player.setShuffleOrder(
+                        playerConnection.exoPlayer.setShuffleOrder(
                             DefaultShuffleOrder(
                                 queueWindows.map { it.firstPeriodIndex }
                                     .toMutableList()

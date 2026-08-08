@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Google Play Services reads android_wear_capabilities by name at runtime, so
+  nothing in this app references it and the resource shrinker strips it from
+  release builds. The failure is invisible: the APK installs, the app runs, and
+  the watch is simply never discoverable by the phone.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@array/android_wear_capabilities"
+    tools:shrinkMode="safe" />

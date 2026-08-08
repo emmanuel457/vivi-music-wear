@@ -1,3 +1,19 @@
+> ## ⌚ This is a Wear OS fork
+>
+> A fork of [vivizzz007/vivi-music](https://github.com/vivizzz007/vivi-music)
+> that adds a **Wear OS app** (`:wear`) which syncs with the phone app over the
+> Wearable Data Layer — control the phone when it's playing, stream standalone
+> to Bluetooth headphones when it isn't.
+>
+> **→ [Read the Wear OS documentation](docs/WEAR.md)** for architecture, the
+> sync protocol, build steps and install instructions.
+>
+> The phone app below is unchanged apart from a companion sync service. All
+> upstream credit belongs to the original authors; this fork is GPL-3.0 like its
+> parent.
+
+---
+
 <div align="center">
   <a href="https://vivimusic.mkmdevilmi.workers.dev/">
     <img src="assets/bannerofficial.png" alt="VIVI Music Banner" style="display: block; margin: 0 auto; max-width: 100%"/>

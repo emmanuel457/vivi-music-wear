@@ -132,7 +132,7 @@ fun EqScreen(
                 val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
                     putExtra(
                         AudioEffect.EXTRA_AUDIO_SESSION,
-                        connection.player.audioSessionId
+                        connection.exoPlayer.audioSessionId
                     )
                     putExtra(
                         AudioEffect.EXTRA_PACKAGE_NAME,

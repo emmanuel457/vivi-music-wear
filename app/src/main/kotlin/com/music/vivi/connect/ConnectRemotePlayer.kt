@@ -1,0 +1,229 @@
+/**
+ * vivimusic Project (C) 2026
+ * Licensed under GPL-3.0 | See git history for contributors
+ */
+
+package com.music.vivi.connect
+
+import android.os.Looper
+import androidx.core.net.toUri
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.common.SimpleBasePlayer
+import androidx.media3.common.util.UnstableApi
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
+import com.music.vivi.wearsync.NowPlayingState
+import com.music.vivi.wearsync.SeekCommand
+import com.music.vivi.wearsync.SyncCodec
+import com.music.vivi.wearsync.SyncPaths
+
+/**
+ * A [Player] whose audio lives on another device.
+ *
+ * This is what makes Connect feel like Spotify rather than like a remote
+ * control app. Swapping this into the existing MediaSession means the
+ * miniplayer, the Now Playing screen, the notification and the lockscreen
+ * controls all start showing and driving the *other* device without a single
+ * change to any of them — they already read from the session, and the session
+ * no longer cares where the audio physically comes out.
+ *
+ * Only state and commands cross the wire; nothing is decoded here.
+ */
+@UnstableApi
+class ConnectRemotePlayer(
+    looper: Looper = Looper.getMainLooper(),
+) : SimpleBasePlayer(looper) {
+
+    @Volatile
+    private var remote: NowPlayingState = NowPlayingState.IDLE
+
+    @Volatile
+    private var remoteQueue: com.music.vivi.wearsync.QueueSnapshot =
+        com.music.vivi.wearsync.QueueSnapshot.EMPTY
+
+    /** Pushes a fresh snapshot from the peer and republishes to listeners. */
+    fun update(state: NowPlayingState) {
+        remote = state
+        invalidateState()
+    }
+
+    /**
+     * Publishes the peer's whole queue as this player's playlist.
+     *
+     * Exposing only the current track made the Queue screen render an empty
+     * list, and skip availability had to be faked from flags. A real playlist
+     * means every existing screen reads the remote queue through the ordinary
+     * Player API with no special cases.
+     */
+    fun updateQueue(queue: com.music.vivi.wearsync.QueueSnapshot) {
+        remoteQueue = queue
+        invalidateState()
+    }
+
+    override fun getState(): State {
+        val snapshot = remote
+        val track = snapshot.track
+
+        val commands = Player.Commands.Builder()
+            .addAll(
+                Player.COMMAND_PLAY_PAUSE,
+                Player.COMMAND_STOP,
+                Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_GET_TIMELINE,
+                Player.COMMAND_GET_METADATA,
+                Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                Player.COMMAND_SET_SHUFFLE_MODE,
+                Player.COMMAND_SET_REPEAT_MODE,
+                // Always advertised. Gating these on the peer's canSkipNext /
+                // canSkipPrevious meant SimpleBasePlayer refused to dispatch the
+                // command at all, so next and previous silently did nothing
+                // whenever the peer reported a single-item queue. The peer is
+                // the right place to decide it cannot skip — not us, from a
+                // snapshot that is always slightly stale.
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+            )
+            .build()
+
+        val builder = State.Builder()
+            .setAvailableCommands(commands)
+            .setPlayWhenReady(
+                snapshot.isPlaying,
+                Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
+            )
+            .setPlaybackState(if (track == null) Player.STATE_IDLE else Player.STATE_READY)
+            .setShuffleModeEnabled(snapshot.shuffle)
+            .setRepeatMode(snapshot.repeatMode)
+
+        if (track != null) {
+            // Prefer the peer's real queue; fall back to the single current
+            // track only until the first queue snapshot arrives.
+            val queueTracks = remoteQueue.tracks.ifEmpty { listOf(track) }
+            val currentIndex = if (remoteQueue.tracks.isNotEmpty()) {
+                remoteQueue.currentIndex.coerceIn(0, queueTracks.lastIndex)
+            } else {
+                0
+            }
+
+            builder.setPlaylist(
+                ImmutableList.copyOf(
+                    queueTracks.mapIndexed { index, item ->
+                        MediaItemData.Builder("${index}:${item.id}")
+                            .setMediaItem(mediaItemFor(item))
+                            .setDurationUs(
+                                when {
+                                    index == currentIndex && snapshot.durationMs > 0 ->
+                                        snapshot.durationMs * 1000
+                                    item.durationSec > 0 -> item.durationSec * 1_000_000L
+                                    else -> C_TIME_UNSET
+                                }
+                            )
+                            .build()
+                    }
+                )
+            )
+            builder.setCurrentMediaItemIndex(currentIndex)
+            // Extrapolating rather than a fixed value: the peer only publishes on
+            // state changes, so a static position would freeze the progress bar
+            // between songs.
+            builder.setContentPositionMs(
+                PositionSupplier.getExtrapolating(
+                    snapshot.positionMs.coerceAtLeast(0L),
+                    if (snapshot.isPlaying) 1f else 0f,
+                )
+            )
+        }
+
+        return builder.build()
+    }
+
+    /**
+     * Builds a MediaItem carrying the app's own MediaMetadata as its tag.
+     *
+     * The tag is not decoration: the queue screen does
+     * `mediaItem.metadata!!.duration`, so an untagged item is an instant crash —
+     * which is exactly the black screen that appeared when opening the queue
+     * while a peer held playback.
+     */
+    private fun mediaItemFor(track: com.music.vivi.wearsync.WearTrack): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(track.id)
+            .setTag(
+                com.music.vivi.models.MediaMetadata(
+                    id = track.id,
+                    title = track.title,
+                    artists = track.artist.split(", ")
+                        .filter { it.isNotBlank() }
+                        .map { com.music.vivi.models.MediaMetadata.Artist(id = null, name = it) },
+                    duration = track.durationSec,
+                    thumbnailUrl = track.thumbnailUrl,
+                    explicit = track.explicit,
+                    liked = track.liked,
+                )
+            )
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album)
+                    .setArtworkUri(track.thumbnailUrl?.toUri())
+                    .build()
+            )
+            .build()
+
+    override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
+        ConnectBridge.sendCommand(
+            if (playWhenReady) SyncPaths.CMD_PLAY else SyncPaths.CMD_PAUSE
+        )
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleSeek(
+        mediaItemIndex: Int,
+        positionMs: Long,
+        seekCommand: Int,
+    ): ListenableFuture<*> {
+        when (seekCommand) {
+            Player.COMMAND_SEEK_TO_NEXT,
+            Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM ->
+                ConnectBridge.sendCommand(SyncPaths.CMD_NEXT)
+
+            Player.COMMAND_SEEK_TO_PREVIOUS,
+            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM ->
+                ConnectBridge.sendCommand(SyncPaths.CMD_PREVIOUS)
+
+            else -> ConnectBridge.sendCommand(
+                SyncPaths.CMD_SEEK,
+                SyncCodec.encode(SeekCommand(positionMs)),
+            )
+        }
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> {
+        ConnectBridge.sendCommand(SyncPaths.CMD_TOGGLE_SHUFFLE)
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleSetRepeatMode(repeatMode: Int): ListenableFuture<*> {
+        ConnectBridge.sendCommand(
+            SyncPaths.CMD_SET_REPEAT,
+            SyncCodec.encode(com.music.vivi.wearsync.RepeatCommand(repeatMode)),
+        )
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleStop(): ListenableFuture<*> {
+        ConnectBridge.sendCommand(SyncPaths.CMD_PAUSE)
+        return Futures.immediateVoidFuture()
+    }
+
+    private companion object {
+        const val C_TIME_UNSET = androidx.media3.common.C.TIME_UNSET
+    }
+}

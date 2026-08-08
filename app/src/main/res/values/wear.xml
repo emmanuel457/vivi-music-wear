@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="UnusedResources">
+    <!--
+      Advertised to the Data Layer so the watch app can find this phone.
+      See com.music.vivi.wearsync.SyncCapabilities.PHONE.
+    -->
+    <string-array name="android_wear_capabilities">
+        <item>vivi_music_phone</item>
+    </string-array>
+</resources>
