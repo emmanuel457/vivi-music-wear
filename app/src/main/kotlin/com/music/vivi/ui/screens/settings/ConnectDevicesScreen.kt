@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -230,23 +231,23 @@ fun ConnectDevicesScreen(
             }
 
             item {
-
-
+                // Polled rather than read once. sessionDiagnostics() is a plain
+                // function over mutable fields, so composing it read a snapshot
+                // that never refreshed — the line on screen could be minutes
+                // stale, which is worse than no line at all when it is the only
+                // thing being used to diagnose.
+                var diagnostics by remember { mutableStateOf(ConnectBridge.sessionDiagnostics()) }
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        diagnostics = ConnectBridge.sessionDiagnostics()
+                        kotlinx.coroutines.delay(1000)
+                    }
+                }
                 Text(
-
-
-                    text = ConnectBridge.sessionDiagnostics(),
-
-
+                    text = diagnostics,
                     style = MaterialTheme.typography.bodySmall,
-
-
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-
-
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-
-
                 )
 
 

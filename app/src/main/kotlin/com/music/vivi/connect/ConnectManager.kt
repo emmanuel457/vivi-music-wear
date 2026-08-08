@@ -174,32 +174,51 @@ class ConnectManager(
         }
     }
 
+    /** Why the last inbound connection was rejected, for the diagnostics line. */
+    @Volatile
+    var lastInboundError: String? = null
+        private set
+
+    @Volatile
+    var inboundAttempts: Int = 0
+        private set
+
     private fun handleInbound(socket: Socket, fingerprints: Set<String>) {
         runCatching {
+            inboundAttempts++
             val link = PeerLink(socket)
-            val hello = link.readFrame()
+            // Same short deadline as the dialler: a peer that opens a socket and
+            // says nothing must not hold this for 70 seconds.
+            val hello = link.withReadTimeout(HANDSHAKE_TIMEOUT_MS) { link.readFrame() }
             if (hello?.path != ConnectProtocol.PATH_HELLO) {
+                lastInboundError = "no hello (${hello?.path ?: "silence"})"
+                Timber.w("Inbound connection sent %s, not HELLO", hello?.path)
                 link.close()
-                return
+                return@runCatching
             }
             val payload = SyncCodec.decodeOrNull<ConnectHello>(decode(hello.data))
             val peerFingerprints = ConnectProtocol.decodeFingerprints(payload?.fingerprint)
             if (payload == null || peerFingerprints.none { it in fingerprints }) {
                 // Logged with both sets, because "refused" alone is exactly the
                 // dead end that made this take several rounds to diagnose.
+                lastInboundError = "account mismatch"
                 Timber.w(
                     "Refused a peer: it offered [%s], we accept [%s]",
                     peerFingerprints.joinToString(",") { it.take(6) },
                     fingerprints.joinToString(",") { it.take(6) },
                 )
                 link.close()
-                return
+                return@runCatching
             }
             Timber.i("Handshake accepted from %s", payload.deviceName)
             link.peerId = payload.deviceId
             link.send(ConnectFrame(ConnectProtocol.PATH_WELCOME))
+            lastInboundError = null
             adopt(link)
-        }.onFailure { Timber.d(it, "Inbound Connect handshake failed") }
+        }.onFailure {
+            lastInboundError = it::class.simpleName
+            Timber.w(it, "Inbound Connect handshake failed")
+        }
     }
 
     /** Periodically dials any discovered peer we are not already linked to. */
@@ -208,9 +227,11 @@ class ConnectManager(
             val known = discovery.peers.value
             for ((peerId, device) in known) {
                 if (links.containsKey(peerId)) continue
-                // Only the lower id dials, so two devices discovering each other
-                // simultaneously don't end up with a redundant pair of sockets.
-                if (selfId > peerId) continue
+                // Both sides dial. Restricting this to the lower id made that
+                // one device a single point of failure: when its dial stalled,
+                // nothing else ever tried and the pair sat at links=0 forever.
+                // A duplicate socket is harmless now — adopt() supersedes
+                // safely and the loser tears down without touching the map.
                 scope.launch { dial(device, fingerprints) }
             }
             delay(DIAL_INTERVAL_MS)
@@ -247,18 +268,26 @@ class ConnectManager(
                     ),
                 )
             )
-            if (link.readFrame()?.path != ConnectProtocol.PATH_WELCOME) {
+            // Short deadline for the handshake only. The steady-state 70 s read
+            // timeout meant a peer that accepted the socket but never replied
+            // stalled this dial for over a minute, and the loop looked frozen
+            // with links=0 and no error to show for it.
+            val welcome = link.withReadTimeout(HANDSHAKE_TIMEOUT_MS) { link.readFrame() }
+            if (welcome?.path != ConnectProtocol.PATH_WELCOME) {
+                // A silent `return` here recorded nothing at all: no exception,
+                // no error, no retry signal. "Dialled once, no link, no reason"
+                // is exactly what that looked like on screen.
+                lastDialError = "no welcome from ${device.name}"
+                Timber.w("Dial to %s got %s, not WELCOME", device.name, welcome?.path)
                 link.close()
-                return
+                return@runCatching
             }
             link.peerId = device.id
+            lastDialError = null
             adopt(link)
         }.onFailure {
-
             lastDialError = "${device.host}:${device.port} ${it::class.simpleName}"
-
-            Timber.w(it, "Could not dial Connect peer %s at %s:%d", device.name, device.host, device.port)
-
+            Timber.w(it, "Could not dial %s at %s:%d", device.name, device.host, device.port)
         }
     }
 
@@ -430,6 +459,14 @@ class ConnectManager(
             }
         }
 
+        /** Runs [block] with a tighter read deadline, then restores the default. */
+        fun <T> withReadTimeout(timeoutMs: Int, block: () -> T): T = try {
+            socket.soTimeout = timeoutMs
+            block()
+        } finally {
+            runCatching { socket.soTimeout = READ_TIMEOUT_MS }
+        }
+
         fun close() {
             runCatching { socket.close() }
         }
@@ -442,6 +479,8 @@ class ConnectManager(
         const val CONNECT_TIMEOUT_MS = 4_000
         // Comfortably longer than the keep-alive, so a quiet link is not mistaken
         // for a dead one.
+        /** Handshake only. The steady-state timeout is far too long to fail on. */
+        const val HANDSHAKE_TIMEOUT_MS = 6_000
         const val READ_TIMEOUT_MS = 70_000
     }
 }

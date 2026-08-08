@@ -150,8 +150,12 @@ object ConnectBridge {
         append(" epoch=").append(epoch.get())
         append(" links=").append(manager?.linkCount() ?: 0)
         manager?.let { m ->
-            append(" dials=").append(m.dialAttempts)
-            m.lastDialError?.let { append(" err=").append(it) }
+            append(" out=").append(m.dialAttempts)
+            append(" in=").append(m.inboundAttempts)
+            // Both directions, because a dial that connects and a handshake that
+            // is refused look identical from the calling side.
+            m.lastDialError?.let { append(" outErr=").append(it) }
+            m.lastInboundError?.let { append(" inErr=").append(it) }
         }
         append(if (_remoteOwnsPlayback.value) " remote-session" else " local-session")
         _remoteState.value.track?.let { append(" peer=\"").append(it.title.take(18)).append('"') }
