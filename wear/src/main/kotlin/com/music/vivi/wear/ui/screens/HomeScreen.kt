@@ -5,6 +5,13 @@
 
 package com.music.vivi.wear.ui.screens
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import androidx.wear.compose.material3.Icon
+import androidx.wear.compose.material3.IconButton
+import androidx.wear.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -74,6 +81,29 @@ fun HomeScreen(
                 }
             }
 
+            // Settings sits in the header rather than at the foot of the list.
+            // On a watch, spinning the crown to the bottom of a scrolling feed
+            // to reach a setting is a long trip for something wanted at any
+            // moment.
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    ListHeader(modifier = Modifier.weight(1f)) { Text("Vivi Music") }
+                    IconButton(
+                        onClick = { navController.navigate(Routes.SETTINGS) },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = stringResource(R.string.settings),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
             item {
                 SectionButton(
                     label = stringResource(R.string.search),
@@ -110,6 +140,7 @@ fun HomeScreen(
             }
 
             item { ListHeader { Text(stringResource(R.string.quick_picks)) } }
+
             when {
                 quickPicksLoading && quickPicks.isEmpty() -> item { LoadingRow() }
                 quickPicks.isEmpty() -> item {
@@ -132,13 +163,6 @@ fun HomeScreen(
                 }
             }
 
-            item {
-                SectionButton(
-                    label = stringResource(R.string.settings),
-                    icon = Icons.Rounded.Settings,
-                    onClick = { navController.navigate(Routes.SETTINGS) },
-                )
-            }
         }
     }
 }

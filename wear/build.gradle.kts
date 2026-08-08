@@ -98,6 +98,9 @@ android {
 dependencies {
     implementation(project(":innertube"))
     implementation(project(":wearsync"))
+    // :innertube keeps ktor as `implementation`, so its return types are not on
+    // our compile classpath. Needed to call YouTube.likeVideo directly.
+    implementation(libs.ktor.client.core)
 
     // Wear OS
     implementation(libs.wear)

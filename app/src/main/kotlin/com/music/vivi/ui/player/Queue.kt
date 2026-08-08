@@ -742,7 +742,7 @@ fun Queue(
                     if (!playerConnection.player.shuffleModeEnabled) {
                         playerConnection.player.moveMediaItem(safeFrom, safeTo)
                     } else {
-                        playerConnection.player.setShuffleOrder(
+                        playerConnection.exoPlayer.setShuffleOrder(
                             DefaultShuffleOrder(
                                 queueWindows.map { it.firstPeriodIndex }
                                     .toMutableList()

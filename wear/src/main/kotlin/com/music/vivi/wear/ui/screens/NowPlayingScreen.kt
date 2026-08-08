@@ -5,6 +5,18 @@
 
 package com.music.vivi.wear.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.itemsIndexed
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.compose.material.icons.rounded.Devices
+import com.music.vivi.wear.ui.components.TrackRow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -91,6 +103,8 @@ fun NowPlayingScreen(navController: NavHostController) {
     val downloads by WearGraph.downloads.states.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var positionMs by remember { mutableLongStateOf(0L) }
+
+    var showQueue by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.isPlaying, state.track?.id) {
         while (true) {
@@ -202,14 +216,6 @@ fun NowPlayingScreen(navController: NavHostController) {
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 12.dp),
         ) {
-            Text(
-                text = "${formatDuration(positionMs)} / ${formatDuration(state.durationMs)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(4.dp))
-
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -268,10 +274,14 @@ fun NowPlayingScreen(navController: NavHostController) {
                     modifier = Modifier.size(28.dp),
                 ) {
                     Icon(
-                        imageVector = if (state.route == ActiveRoute.PHONE) {
-                            Icons.Rounded.Smartphone
-                        } else {
-                            Icons.Rounded.Watch
+                        // Reflects the *preference* being cycled, not the route
+                        // currently carrying audio. Showing the active route made
+                        // the button look broken: tapping it changed a setting
+                        // the icon never acknowledged.
+                        imageVector = when (route) {
+                            PlaybackRoute.AUTO -> Icons.Rounded.Devices
+                            PlaybackRoute.WATCH -> Icons.Rounded.Watch
+                            PlaybackRoute.PHONE -> Icons.Rounded.Smartphone
                         },
                         contentDescription = stringResource(R.string.cd_output),
                         tint = MaterialTheme.colorScheme.primary,
@@ -279,19 +289,83 @@ fun NowPlayingScreen(navController: NavHostController) {
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(5.dp))
 
-            // A handle rather than an icon. The queue is a whole screen away, so
-            // it reads better as "there is more below" than as a fourth control
-            // competing with the three above it.
+            // A handle, not an icon: it reads as "there is more below" rather
+            // than a fourth control competing with the three above it.
             Box(
                 modifier = Modifier
-                    .width(34.dp)
-                    .height(4.dp)
+                    .width(26.dp)
+                    .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f))
-                    .clickable { navController.navigate(Routes.QUEUE) }
+                    .clickable { showQueue = true }
             )
+        }
+
+        // The queue rises from the handle rather than replacing the screen
+        // sideways. A horizontal page transition implies "somewhere else";
+        // pulling up from the handle you just tapped implies "more of this".
+        QueueSheet(
+            visible = showQueue,
+            state = state,
+            onDismiss = { showQueue = false },
+        )
+    }
+}
+
+@UnstableApi
+@Composable
+private fun BoxScope.QueueSheet(
+    visible: Boolean,
+    state: com.music.vivi.wear.playback.UiPlaybackState,
+    onDismiss: () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.88f))
+                .clickable(onClick = onDismiss),
+        ) {
+            val listState = rememberScalingLazyListState(
+                initialCenterItemIndex = (state.queueIndex + 1).coerceAtLeast(0),
+            )
+            ScalingLazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                item {
+                    Text(
+                        text = state.queueTitle ?: stringResource(R.string.queue),
+                        style = MaterialTheme.typography.titleSmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                itemsIndexed(
+                    state.queue,
+                    key = { index, track -> "$index:${track.id}" },
+                ) { index, track ->
+                    TrackRow(
+                        track = track,
+                        isPlaying = index == state.queueIndex,
+                        onClick = {
+                            if (state.route == ActiveRoute.WATCH) {
+                                WearGraph.router.seekToQueueIndex(index)
+                            } else {
+                                WearGraph.router.play(state.queue, index, state.queueTitle)
+                            }
+                            onDismiss()
+                        },
+                    )
+                }
+            }
         }
     }
 }

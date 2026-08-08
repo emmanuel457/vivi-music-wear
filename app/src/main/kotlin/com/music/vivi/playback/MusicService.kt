@@ -357,8 +357,9 @@ class MusicService :
 
     private lateinit var mediaSession: MediaLibrarySession
 
-    /** Backs the session while another device holds the audio. */
-    private val connectRemotePlayer by lazy { com.music.vivi.connect.ConnectRemotePlayer() }
+    /** Backs the session while another device holds the audio. Shared with
+     * PlayerConnection so the notification and the in-app screen never diverge. */
+    private val connectRemotePlayer get() = com.music.vivi.connect.ConnectBridge.remotePlayer
 
     // Tracks if player has been properly initilized
     private val playerInitialized = MutableStateFlow(false)

@@ -70,6 +70,16 @@ object ConnectBridge {
      */
     val remoteStateFlow: StateFlow<NowPlayingState> = _remoteState.asStateFlow()
 
+    /**
+     * The Player that stands in for a peer.
+     *
+     * Owned here rather than by MusicService so the service's MediaSession and
+     * the app's PlayerConnection hand out the *same* instance. Two instances
+     * would drift, and the notification and the in-app screen would disagree —
+     * which is exactly what happened when only the session was swapped.
+     */
+    val remotePlayer: ConnectRemotePlayer by lazy { ConnectRemotePlayer() }
+
     private val _remoteOwnsPlayback = MutableStateFlow(false)
 
     /**

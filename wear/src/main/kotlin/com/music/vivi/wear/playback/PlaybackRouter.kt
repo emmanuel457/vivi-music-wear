@@ -13,6 +13,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.MoreExecutors
+import com.music.innertube.YouTube
 import com.music.vivi.wear.data.PhoneLink
 import com.music.vivi.wear.data.PlaybackRoute
 import com.music.vivi.wear.data.WearPrefs
@@ -106,8 +107,8 @@ class PlaybackRouter(
     fun start() {
         connectController()
         scope.launch {
-            combine(localState, phoneLink.nowPlaying, phoneLink.phoneReachable) { local, phone, reachable ->
-                merge(local, phone, reachable)
+            combine(localState, phoneLink.nowPlaying, phoneLink.phoneReachable, likeOverrides) { local, phone, reachable, overrides ->
+                applyLikeOverrides(merge(local, phone, reachable), overrides)
             }.collect { _state.value = it }
         }
     }
@@ -171,6 +172,16 @@ class PlaybackRouter(
         phoneReachable && phone.phonePlaybackActive -> phoneState(phone)
 
         else -> UiPlaybackState()
+    }
+
+    /** Lets the heart respond immediately, before any device confirms it. */
+    private fun applyLikeOverrides(
+        state: UiPlaybackState,
+        overrides: Map<String, Boolean>,
+    ): UiPlaybackState {
+        val track = state.track ?: return state
+        val override = overrides[track.id] ?: return state
+        return state.copy(track = track.copy(liked = override))
     }
 
     private fun phoneState(phone: com.music.vivi.wearsync.NowPlayingState) = UiPlaybackState(
@@ -327,12 +338,34 @@ class PlaybackRouter(
         phoneLink.sendAsync(SyncPaths.CMD_VOLUME, SyncCodec.encode(VolumeCommand(steps)))
     }
 
+    /**
+     * Liked state the watch has changed but not yet seen confirmed.
+     *
+     * The heart used to look dead: it only ever asked the phone, and the phone
+     * reports `liked` through its now-playing state — which the watch never
+     * receives while it is the device playing. So the icon never changed, no
+     * matter how many times you tapped it.
+     */
+    private val likeOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
     fun toggleLike() {
         val track = _state.value.track ?: return
+        val liked = !(likeOverrides.value[track.id] ?: track.liked)
+        likeOverrides.value = likeOverrides.value + (track.id to liked)
+
+        // Tell the phone so its database and library stay in step.
         phoneLink.sendAsync(
             SyncPaths.CMD_TOGGLE_LIKE,
-            SyncCodec.encode(LikeCommand(track.id, !track.liked)),
+            SyncCodec.encode(LikeCommand(track.id, liked)),
         )
+
+        // And send it to YouTube from here as well. When the watch is the one
+        // playing, the phone may be out of range or have no row for a track that
+        // came from watch search, so relaying alone silently loses the like.
+        scope.launch {
+            runCatching { YouTube.likeVideo(track.id, liked) }
+                .onFailure { Timber.w(it, "Could not like %s from the watch", track.id) }
+        }
     }
 
     fun stopLocal() {
