@@ -63,6 +63,9 @@ class ConnectManager(
             ?: "${Build.MANUFACTURER} ${Build.MODEL}"
     }
 
+    /** Stable identity for this device, used as the Connect ownership token. */
+    fun selfId(): String = selfId
+
     private val discovery by lazy { ConnectDiscovery(context, selfId, selfName) }
 
     private var serverSocket: ServerSocket? = null

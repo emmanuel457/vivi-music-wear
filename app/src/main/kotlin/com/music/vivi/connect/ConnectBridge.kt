@@ -116,8 +116,11 @@ object ConnectBridge {
         // Funnel LAN frames into the single remote-state flow, and recompute who
         // owns playback. "A peer is playing and we are not" is the whole
         // condition for handing our MediaSession to the remote player.
+        setSelfDeviceId(instance.selfId())
         scope.launch {
             instance.remoteState.collect { state ->
+                // Stale snapshots are dropped before they can touch the UI.
+                if (!adoptOwnership(state)) return@collect
                 _remoteState.value = state
                 recomputeOwnership()
             }
@@ -294,50 +297,99 @@ object ConnectBridge {
     }
 
     /** Called from MusicService's event hook, alongside the watch publish. */
-    fun onPlaybackStateChanged(state: NowPlayingState) {
+    fun onPlaybackStateChanged(rawState: NowPlayingState) {
+        val state = stampOwnership(rawState)
         manager?.broadcastState(state)
         relayBroadcast(state)
 
-        // Starting playback here takes the session over. Nothing announced this
-        // before, so playing on a second device simply forked it: two devices
-        // played at once and neither UI followed the other. This is the same
-        // last-actor-wins rule the watch has always used, which the Connect
-        // transport was missing entirely.
+        // Starting playback here claims the session, bumping the epoch so every
+        // peer's stale claim loses deterministically.
         if (state.isPlaying && !wasPlayingLocally) {
+            claimOwnership()
             manager?.sendToActivePeer(SyncPaths.NOTIFY_WATCH_PLAYING)
             relay.sendFrame(relayFrame(SyncPaths.NOTIFY_WATCH_PLAYING, ByteArray(0)))
-            Timber.i("Took playback over from any peer")
+            Timber.i("Claimed playback (epoch %d)", epoch.get())
         }
         wasPlayingLocally = state.isPlaying
-
-        localIsPlaying = state.isPlaying
-        localHasQueue = state.phonePlaybackActive
         recomputeOwnership()
     }
 
     @Volatile
     private var wasPlayingLocally = false
 
-    @Volatile
-    private var localIsPlaying = false
+    /** Highest epoch seen from any device, including our own claims. */
+    private val epoch = java.util.concurrent.atomic.AtomicLong(0L)
 
+    /** Who currently owns playback. Null until any device has claimed it. */
     @Volatile
-    private var localHasQueue = false
+    private var activeDeviceId: String? = null
+
+    /** Stable identity for this device, matching what ConnectManager advertises. */
+    @Volatile
+    private var selfDeviceId: String = ""
+
+    fun setSelfDeviceId(id: String) {
+        selfDeviceId = id
+    }
+
+    /** Stamps our outgoing snapshot with the current ownership claim. */
+    fun stampOwnership(state: NowPlayingState): NowPlayingState =
+        state.copy(activeDeviceId = activeDeviceId, epoch = epoch.get())
+
+    /** Claims playback for this device, superseding every earlier claim. */
+    private fun claimOwnership() {
+        epoch.incrementAndGet()
+        activeDeviceId = selfDeviceId
+        recomputeOwnership()
+    }
 
     /**
-     * Decides which player backs this device's MediaSession.
+     * Adopts a peer's ownership claim if it is newer than anything seen.
      *
-     * Keyed on who is actually *playing*, not on who holds a queue. Using
-     * "has a queue" meant a device that had been paused by a peer takeover
-     * still considered itself the owner forever, so it never followed the
-     * device that had taken over.
+     * @return true when the claim was accepted.
+     */
+    fun adoptOwnership(state: NowPlayingState): Boolean {
+        val incoming = state.epoch
+        if (incoming <= 0L) return true // pre-epoch build; accept rather than stall
+        val current = epoch.get()
+        if (incoming < current) {
+            // Stale. Discarding late snapshots is what stops a paused device
+            // reverting to an older track.
+            return false
+        }
+        epoch.set(incoming)
+        activeDeviceId = state.activeDeviceId
+        recomputeOwnership()
+        return true
+    }
+
+    /**
+     * Exactly one device owns playback, and it is whichever one most recently
+     * claimed it — never inferred from whose `isPlaying` flag happened to
+     * arrive last.
      */
     private fun recomputeOwnership() {
+        val owner = activeDeviceId
         val remote = _remoteState.value
-        val localOwns = localIsPlaying || (localHasQueue && !remote.isPlaying)
-        _remoteOwnsPlayback.value = !localOwns &&
-            remote.phonePlaybackActive &&
+        _remoteOwnsPlayback.value = owner != null &&
+            owner != selfDeviceId &&
             remote.track != null
+    }
+
+    /** True when this device is the designated owner. */
+    fun ownsPlayback(): Boolean =
+        activeDeviceId == null || activeDeviceId == selfDeviceId
+
+    /**
+     * Routes a transport command to whichever device owns playback.
+     *
+     * The Devices screen always *sent* its commands, so on the device that
+     * actually held the audio they went out to peers and nothing happened
+     * locally — the buttons there did nothing at all. Everything transport
+     * related should go through here.
+     */
+    fun dispatchTransport(path: String, payload: ByteArray = ByteArray(0)) {
+        if (ownsPlayback()) execute(path, payload) else sendCommand(path, payload)
     }
 
     /** Sends a transport command to the peer currently holding playback. */

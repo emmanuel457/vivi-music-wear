@@ -486,6 +486,13 @@ class MusicService :
             com.music.vivi.connect.ConnectBridge.remoteOwnsPlayback.collect { remoteOwns ->
                 runCatching {
                     if (remoteOwns) {
+                        // A non-active device must hold no queue of its own. Spotify
+                        // enforces this; without it, pressing play here started this
+                        // device's stale track while the screen showed the peer's.
+                        if (player.mediaItemCount > 0) {
+                            player.pause()
+                            player.clearMediaItems()
+                        }
                         connectRemotePlayer.update(
                             com.music.vivi.connect.ConnectBridge.remoteState()
                         )

@@ -59,6 +59,25 @@ data class NowPlayingState(
     val volume: Float = 0f,
     /** `SystemClock.elapsedRealtime()` on the *phone* when this was captured. */
     val capturedAtElapsedRealtime: Long = 0L,
+
+    /**
+     * Stable id of the device that owns playback.
+     *
+     * Spotify Connect designates exactly one active device and every other
+     * device is a pure remote. Inferring that from `isPlaying` flags arriving
+     * asynchronously from both sides let two devices claim it at once — or
+     * neither — which is what produced blank screens, flicker, and a device
+     * playing its own stale queue while displaying the peer's track.
+     */
+    val activeDeviceId: String? = null,
+
+    /**
+     * Monotonic claim counter. A snapshot carrying a lower epoch than one
+     * already seen is stale and must be discarded; without this a late-arriving
+     * update overwrites a newer one, which is why a paused device would revert
+     * to showing some earlier song.
+     */
+    val epoch: Long = 0L,
     /**
      * True while the phone's MusicService holds an active player. Drives the
      * watch's automatic remote-vs-local decision.

@@ -111,17 +111,17 @@ fun ConnectDevicesScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             IconButton(onClick = {
-                                ConnectBridge.sendCommand(SyncPaths.CMD_PREVIOUS)
+                                ConnectBridge.dispatchTransport(SyncPaths.CMD_PREVIOUS)
                             }) {
                                 Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous")
                             }
                             IconButton(onClick = {
-                                ConnectBridge.sendCommand(SyncPaths.CMD_TOGGLE)
+                                ConnectBridge.dispatchTransport(SyncPaths.CMD_TOGGLE)
                             }) {
                                 Icon(Icons.Rounded.GraphicEq, contentDescription = "Play or pause")
                             }
                             IconButton(onClick = {
-                                ConnectBridge.sendCommand(SyncPaths.CMD_NEXT)
+                                ConnectBridge.dispatchTransport(SyncPaths.CMD_NEXT)
                             }) {
                                 Icon(Icons.Rounded.SkipNext, contentDescription = "Next")
                             }
